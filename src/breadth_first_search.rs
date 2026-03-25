@@ -1,5 +1,6 @@
 use crate::build_option::BuildOption;
 use crate::data;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Clone)]
 struct LocalState {
@@ -16,7 +17,11 @@ struct LocalState {
     pub has_t2_con: bool,
 }
 
-struct GlobalState {}
+struct GlobalState {
+    pub best_time: AtomicU32,
+    pub sequences_checked: AtomicU32,
+    pub sequences_skipped_time: AtomicU32,
+}
 
 pub struct SearchResult {
     pub time: u32,
@@ -25,7 +30,11 @@ pub struct SearchResult {
 
 pub fn search() -> SearchResult {
     let mut sequence = Vec::new();
-    let mut global_state = GlobalState {};
+    let mut global_state = GlobalState {
+        best_time: AtomicU32::new(u32::MAX),
+        sequences_checked: AtomicU32::default(),
+        sequences_skipped_time: AtomicU32::default(),
+    };
     let initial_state = LocalState {
         time: 0,
         metal: 1000,
@@ -45,15 +54,17 @@ pub fn search() -> SearchResult {
         sequence: Vec::new(),
     };
 
-    for i in 15..24 {
+    for i in 10..15 {
         let candidate = search_inner(&mut sequence, i, initial_state.clone(), &mut global_state);
+
+        println!("Best {} sequence: {:?}", i, candidate.sequence);
 
         if candidate.time < best.time {
             best = candidate;
-
-            println!("Best {} sequence: {:?}", i, best.sequence);
         }
     }
+
+    println!("Checked: {}, Skipped: {}", global_state.sequences_checked.load(Ordering::Relaxed), global_state.sequences_skipped_time.load(Ordering::Relaxed));
 
     best
 }
@@ -65,6 +76,7 @@ fn search_inner(
     g: &mut GlobalState,
 ) -> SearchResult {
     if remaining_depth == 0 {
+        g.sequences_checked.fetch_add(1, Ordering::Relaxed);
         return SearchResult {
             time: l.time,
             sequence: sequence.clone(),
@@ -118,6 +130,11 @@ fn search_inner(
         let final_build_time =
             u32::max(conversion_time, build_power_time).max(energy_generation_time);
 
+        if l.time + final_build_time > g.best_time.load(Ordering::Relaxed) {
+            g.sequences_skipped_time.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+
         // non-zero if we were not limited by energy generation
         let energy_surplus = (l.energy_generation * final_build_time) as i32 - energy_shortage;
         assert!(energy_surplus >= 0);
@@ -134,7 +151,7 @@ fn search_inner(
         let new_local = LocalState {
             time: l.time + final_build_time,
             metal: (final_metal_gained - metal_shortage) as u32,
-            energy: energy_surplus as u32,
+            energy: u32::clamp(energy_surplus as u32, 0, l.energy_storage),
             energy_generation: l.energy_generation + option.energy_generation,
             build_power: l.build_power + option.build_power,
             conversion_drain: l.conversion_drain + option.conversion_drain,
@@ -152,6 +169,10 @@ fn search_inner(
         if candidate.time < best.time {
             best = candidate;
         }
+    }
+
+    if best.time < g.best_time.load(Ordering::Relaxed) {
+        g.best_time.store(best.time, Ordering::Relaxed)
     }
 
     best

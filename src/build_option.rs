@@ -1,3 +1,4 @@
+#[derive(PartialEq)]
 pub struct BuildOption {
     pub name: &'static str,
     pub cost_metal: u32,

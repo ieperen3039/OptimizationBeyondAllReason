@@ -1,8 +1,22 @@
 use crate::build_option::BuildOption;
 
-pub const BUILD_OPTIONS: &[BuildOption] = &[
+pub const BUILD_OPTIONS_CON: &[BuildOption] = &[
     WIND_TURBINE,
     SOLAR_COLLECTOR,
+    ENERGY_CONVERTER,
+    VEHICLE_PLANT,
+];
+pub const BUILD_OPTIONS_T1: &[BuildOption] = &[
+    WIND_TURBINE,
+    SOLAR_COLLECTOR,
+    ADVANCED_SOLAR_COLLECTOR,
+    ENERGY_CONVERTER,
+    BUILD_TURRET,
+    CONSTRUCTION_VEHICLE_T1,
+    ADVANCED_VEHICLE_PLANT,
+];
+pub const BUILD_OPTIONS_T2: &[BuildOption] = &[
+    // no options to build WIND_TURBINE and SOLAR_COLLECTOR
     ADVANCED_SOLAR_COLLECTOR,
     ENERGY_CONVERTER,
     ADVANCED_ENERGY_CONVERTER,
@@ -11,7 +25,6 @@ pub const BUILD_OPTIONS: &[BuildOption] = &[
     BUILD_TURRET,
     CONSTRUCTION_VEHICLE_T1,
     CONSTRUCTION_VEHICLE_T2,
-    ADVANCED_VEHICLE_PLANT,
 ];
 
 pub const WIND_TURBINE: BuildOption = BuildOption::new_generator("Wind", 43, 175, 1680, 10, 0);
@@ -38,11 +51,11 @@ pub const BUILD_TURRET: BuildOption = BuildOption {
     cost_metal: 230,
     cost_energy: 3200,
     cost_bp: 5300,
-    make_energy: 0,
+    energy_generation: 0,
     build_power: 200,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 0,
+    energy_storage: 0,
 };
 
 pub const VEHICLE_PLANT: BuildOption = BuildOption {
@@ -50,11 +63,11 @@ pub const VEHICLE_PLANT: BuildOption = BuildOption {
     cost_metal: 570,
     cost_energy: 1550,
     cost_bp: 5650,
-    make_energy: 0,
+    energy_generation: 0,
     build_power: 0,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 100,
+    energy_storage: 100,
 };
 
 pub const CONSTRUCTION_VEHICLE_T1: BuildOption = BuildOption {
@@ -62,11 +75,11 @@ pub const CONSTRUCTION_VEHICLE_T1: BuildOption = BuildOption {
     cost_metal: 145,
     cost_energy: 2100,
     cost_bp: 4160,
-    make_energy: 10,
+    energy_generation: 10,
     build_power: 95,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 50,
+    energy_storage: 50,
 };
 
 pub const ADVANCED_VEHICLE_PLANT: BuildOption = BuildOption {
@@ -74,11 +87,11 @@ pub const ADVANCED_VEHICLE_PLANT: BuildOption = BuildOption {
     cost_metal: 2600,
     cost_energy: 16000,
     cost_bp: 28000,
-    make_energy: 0,
+    energy_generation: 0,
     build_power: 0,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 200,
+    energy_storage: 200,
 };
 
 pub const CONSTRUCTION_VEHICLE_T2: BuildOption = BuildOption {
@@ -86,11 +99,11 @@ pub const CONSTRUCTION_VEHICLE_T2: BuildOption = BuildOption {
     cost_metal: 580,
     cost_energy: 7000,
     cost_bp: 28000,
-    make_energy: 20,
+    energy_generation: 20,
     build_power: 310,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 100,
+    energy_storage: 100,
 };
 
 pub const JUGGERNAUT: BuildOption = BuildOption {
@@ -98,9 +111,9 @@ pub const JUGGERNAUT: BuildOption = BuildOption {
     cost_metal: 29000,
     cost_energy: 615000,
     cost_bp: 730000,
-    make_energy: 0,
+    energy_generation: 0,
     build_power: 0,
     conversion_drain: 0.0,
     conversion_result: 0.0,
-    storage_energy: 0,
+    energy_storage: 0,
 };

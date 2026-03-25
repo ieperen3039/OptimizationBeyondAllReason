@@ -1,17 +1,20 @@
 use crate::build_option::BuildOption;
 use crate::data;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
+use std::thread;
 
 #[derive(Clone)]
 struct LocalState {
-    pub time: u32,
-    pub metal: u32,
-    pub energy: u32,
-    pub energy_generation: u32,
+    pub time: f32,
+    pub metal: f32,
+    pub energy: f32,
+    pub energy_generation: f32,
     pub build_power: u32,
     pub conversion_drain: f32,
     pub conversion_result: f32,
     pub energy_storage: u32,
+    pub has_t1: bool,
     pub has_t1_con: bool,
     pub has_t2: bool,
     pub has_t2_con: bool,
@@ -30,20 +33,27 @@ pub struct SearchResult {
 
 pub fn search() -> SearchResult {
     let mut sequence = Vec::new();
-    let mut global_state = GlobalState {
+    let global_state = Arc::new(GlobalState {
         best_time: AtomicU32::new(u32::MAX),
         sequences_checked: AtomicU32::default(),
         sequences_skipped_time: AtomicU32::default(),
-    };
+    });
+    let done = Arc::new(AtomicBool::new(false));
+
+    let progress_state = Arc::clone(&global_state);
+    let progress_done = Arc::clone(&done);
+    let progress_handle = thread::spawn(move || progress_updater(progress_state, progress_done));
+
     let initial_state = LocalState {
-        time: 0,
-        metal: 1000,
-        energy: 1000,
-        energy_generation: 3,
+        time: 0_f32,
+        metal: 1000_f32,
+        energy: 1000_f32,
+        energy_generation: 3f32,
         build_power: 300,
         conversion_drain: 0.0,
         conversion_result: 0.0,
-        energy_storage: 0,
+        energy_storage: 1000,
+        has_t1: false,
         has_t1_con: false,
         has_t2: false,
         has_t2_con: false,
@@ -54,37 +64,82 @@ pub fn search() -> SearchResult {
         sequence: Vec::new(),
     };
 
-    for i in 10..15 {
-        let candidate = search_inner(&mut sequence, i, initial_state.clone(), &mut global_state);
+    for i in 14..20 {
+        let candidate = search_inner(
+            &mut sequence,
+            i,
+            initial_state.clone(),
+            Arc::as_ref(&global_state),
+        );
 
-        println!("Best {} sequence: {:?}", i, candidate.sequence);
+        println!("\nBest {} sequence: {:?}", i, candidate.sequence);
 
         if candidate.time < best.time {
             best = candidate;
         }
     }
 
-    println!("Checked: {}, Skipped: {}", global_state.sequences_checked.load(Ordering::Relaxed), global_state.sequences_skipped_time.load(Ordering::Relaxed));
+    done.store(true, Ordering::Relaxed);
+    progress_handle.join().unwrap();
+
+    println!(
+        "Checked: {}, Skipped: {}",
+        global_state.sequences_checked.load(Ordering::Relaxed),
+        global_state.sequences_skipped_time.load(Ordering::Relaxed)
+    );
 
     best
+}
+
+fn progress_updater(progress_state: Arc<GlobalState>, progress_done: Arc<AtomicBool>) {
+    use std::time::Duration;
+
+    while !progress_done.load(Ordering::Relaxed) {
+        let best_time = progress_state.best_time.load(Ordering::Relaxed);
+        let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
+        let skipped = progress_state
+            .sequences_skipped_time
+            .load(Ordering::Relaxed);
+
+        print!(
+            "\rProgress: best_time={}, checked={}, skipped={}",
+            if best_time == u32::MAX {
+                "n/a".to_string()
+            } else {
+                best_time.to_string()
+            },
+            checked,
+            skipped
+        );
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+
+        thread::sleep(Duration::from_millis(200));
+    }
 }
 
 fn search_inner(
     sequence: &mut Vec<&'static BuildOption>,
     remaining_depth: u32,
     l: LocalState,
-    g: &mut GlobalState,
+    g: &GlobalState,
 ) -> SearchResult {
     if remaining_depth == 0 {
         g.sequences_checked.fetch_add(1, Ordering::Relaxed);
         return SearchResult {
-            time: l.time,
+            time: f32::ceil(l.time) as u32,
             sequence: sequence.clone(),
         };
     }
 
     let options = if remaining_depth == 1 {
-        &[data::JUGGERNAUT]
+        if l.has_t2_con {
+            &[data::JUGGERNAUT]
+        } else {
+            return SearchResult {
+                time: u32::MAX,
+                sequence: Vec::new(),
+            }
+        }
     } else if l.has_t2_con {
         data::BUILD_OPTIONS_T2
     } else if l.has_t2 {
@@ -92,6 +147,9 @@ fn search_inner(
         &[data::CONSTRUCTION_VEHICLE_T2]
     } else if l.has_t1_con {
         data::BUILD_OPTIONS_T1
+    } else if l.has_t1 {
+        // force building a T2 constructor (always optimal)
+        &[data::CONSTRUCTION_VEHICLE_T1]
     } else {
         data::BUILD_OPTIONS_CON
     };
@@ -102,63 +160,65 @@ fn search_inner(
     };
 
     for option in options {
-        let metal_shortage = (option.cost_metal as i32) - (l.metal as i32);
-        let conversion_time_f = if metal_shortage <= 0 {
-            0f32
-        } else if l.conversion_result > 0f32 {
-            (metal_shortage as f32) / l.conversion_result
+        let metal_shortage = (option.cost_metal as f32) - l.metal;
+        let conversion_time = if metal_shortage <= 0_f32 {
+            0_f32
+        } else if l.conversion_result > 0_f32 {
+            (metal_shortage) / l.conversion_result
         } else {
             // not enough metal stored, no metal conversion
             continue;
         };
-        let energy_to_convert = f32::ceil(conversion_time_f * l.conversion_drain) as i32;
-        let conversion_time = f32::ceil(conversion_time_f) as u32;
+        let energy_to_convert = conversion_time * l.conversion_drain;
+        let energy_shortage = (option.cost_energy as f32) + energy_to_convert - (l.energy);
 
-        let energy_shortage = (option.cost_energy as i32) + energy_to_convert - (l.energy as i32);
-
-        let energy_generation_time = if energy_shortage < 0 {
-            0u32
-        } else if l.energy_generation > 0 {
-            f32::ceil((energy_shortage as f32) / (l.energy_generation as f32)) as u32
+        let energy_generation_time = if energy_shortage < 0_f32 {
+            0_f32
+        } else if l.energy_generation > 0_f32 {
+            energy_shortage / l.energy_generation
         } else {
             // not enough energy stored, no energy generation
             continue;
         };
 
-        let build_power_time = option.cost_bp / l.build_power;
+        let build_power_time = (option.cost_bp / l.build_power) as f32;
 
         let final_build_time =
-            u32::max(conversion_time, build_power_time).max(energy_generation_time);
+            f32::max(conversion_time, build_power_time).max(energy_generation_time);
 
-        if l.time + final_build_time > g.best_time.load(Ordering::Relaxed) {
+        let total_time_u32 = f32::ceil(l.time + final_build_time) as u32;
+        if total_time_u32 > g.best_time.load(Ordering::Relaxed) {
             g.sequences_skipped_time.fetch_add(1, Ordering::Relaxed);
             continue;
         }
 
         // non-zero if we were not limited by energy generation
-        let energy_surplus = (l.energy_generation * final_build_time) as i32 - energy_shortage;
-        assert!(energy_surplus >= 0);
-
-        let final_conversion_time = if l.conversion_drain == 0f32 {
-            0f32
-        } else {
-            conversion_time_f + ((energy_surplus as f32) / l.conversion_drain)
+        let energy_surplus = if final_build_time == energy_generation_time { 0_f32 } else {
+            (l.energy_generation * final_build_time) - energy_shortage
         };
-        assert!(final_conversion_time >= 0f32);
+        assert!(energy_surplus >= 0_f32);
 
-        let final_metal_gained = f32::ceil(final_conversion_time * l.conversion_result) as i32;
+        let final_conversion_time = if l.conversion_drain == 0_f32 {
+            0_f32
+        } else {
+            conversion_time + (energy_surplus / l.conversion_drain)
+        };
+        assert!(final_conversion_time >= 0_f32);
+
+        let final_metal_gained = f32::ceil(final_conversion_time * l.conversion_result);
 
         let new_local = LocalState {
             time: l.time + final_build_time,
-            metal: (final_metal_gained - metal_shortage) as u32,
-            energy: u32::clamp(energy_surplus as u32, 0, l.energy_storage),
-            energy_generation: l.energy_generation + option.energy_generation,
+            metal: final_metal_gained - metal_shortage,
+            energy: f32::clamp(energy_surplus, 0_f32, l.energy_storage as f32),
+            energy_generation: l.energy_generation + option.energy_generation as f32,
             build_power: l.build_power + option.build_power,
             conversion_drain: l.conversion_drain + option.conversion_drain,
             conversion_result: l.conversion_result + option.conversion_result,
             energy_storage: l.energy_storage + option.energy_storage,
+            has_t1: l.has_t1 || option == &data::VEHICLE_LAB,
             has_t1_con: l.has_t1_con || option == &data::CONSTRUCTION_VEHICLE_T1,
-            has_t2: l.has_t2 || option == &data::ADVANCED_VEHICLE_PLANT,
+            has_t2: l.has_t2 || option == &data::ADVANCED_VEHICLE_LAB,
             has_t2_con: l.has_t2_con || option == &data::CONSTRUCTION_VEHICLE_T2,
         };
 

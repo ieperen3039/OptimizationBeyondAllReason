@@ -4,7 +4,7 @@ pub const BUILD_OPTIONS_CON: &[BuildOption] = &[
     WIND_TURBINE,
     SOLAR_COLLECTOR,
     ENERGY_CONVERTER,
-    VEHICLE_PLANT,
+    VEHICLE_LAB,
 ];
 pub const BUILD_OPTIONS_T1: &[BuildOption] = &[
     WIND_TURBINE,
@@ -13,7 +13,7 @@ pub const BUILD_OPTIONS_T1: &[BuildOption] = &[
     ENERGY_CONVERTER,
     BUILD_TURRET,
     CONSTRUCTION_VEHICLE_T1,
-    ADVANCED_VEHICLE_PLANT,
+    ADVANCED_VEHICLE_LAB,
 ];
 pub const BUILD_OPTIONS_T2: &[BuildOption] = &[
     // no options to build WIND_TURBINE and SOLAR_COLLECTOR
@@ -58,7 +58,7 @@ pub const BUILD_TURRET: BuildOption = BuildOption {
     energy_storage: 0,
 };
 
-pub const VEHICLE_PLANT: BuildOption = BuildOption {
+pub const VEHICLE_LAB: BuildOption = BuildOption {
     name: "T1",
     cost_metal: 570,
     cost_energy: 1550,
@@ -82,7 +82,7 @@ pub const CONSTRUCTION_VEHICLE_T1: BuildOption = BuildOption {
     energy_storage: 50,
 };
 
-pub const ADVANCED_VEHICLE_PLANT: BuildOption = BuildOption {
+pub const ADVANCED_VEHICLE_LAB: BuildOption = BuildOption {
     name: "T2",
     cost_metal: 2600,
     cost_energy: 16000,

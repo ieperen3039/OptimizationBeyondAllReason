@@ -1,11 +1,50 @@
-use crate::pareto::CheckResult::{Dominant, Incomparable, Inferior};
+// Two dimensions
+//
+// For points in two dimensions, this problem can be solved in time O(n log n) by an algorithm that performs the following steps:[1][2]
+//
+//     Sort the points in one of the coordinate dimensions (the x-coordinate, say)
+//     For each point, in decreasing order by x-coordinate, test whether its y-coordinate is greater
+// than the maximum y-coordinate of any previously processed point. (For the first point, this is vacuously true).
+// If it is, output the point as one of the maximal points, and remember its y-coordinate as the greatest seen so far.
+//
+// If the coordinates of the points are assumed to be integers, this can be sped up using integer sorting algorithms,
+// to have the same asymptotic running time as the sorting algorithms.[3]
+// Three dimensions
+//
+// For points in three dimensions, it is again possible to find the maximal points in time O(n log n)
+// using an algorithm similar to the two-dimensional one that performs the following steps:
+//
+//     Sort the points in one of the coordinate dimensions (the x-coordinate, say)
+//     For each point, in decreasing order by x-coordinate, test whether its projection onto the yz
+//          plane is maximal among the set of projections of the set of points processed so far.
+//          If it is, output the point as one of the maximal points, and remember its y-coordinate as the greatest seen so far.
+//
+// This method reduces the problem of computing the maximal points of a static three-dimensional
+// point set to one of maintaining the maximal points of a dynamic two-dimensional point set.
+// The two-dimensional subproblem can be solved efficiently by using a balanced binary search tree
+// to maintain the set of maxima of a dynamic point set. Using this data structure, it is possible
+// to test whether a new point is dominated by the existing points, to find and remove the
+// previously-undominated points that are dominated by a new point, and to add a new point to the
+// set of maximal points, in logarithmic time per point. The number of search tree operations is
+// linear over the course of the algorithm, so the total time is O(n log n).[1][2]
+//
+// For points with integer coordinates the first part of the algorithm, sorting the points, can
+// again be sped up by integer sorting. If the points are sorted separately by all three of their
+// dimensions, the range of values of their coordinates can be reduced to the range from 1 to n
+// without changing the relative order of any two coordinates and without changing the identities
+// of the maximal points. After this reduction in the coordinate space, the problem of maintaining
+// a dynamic two-dimensional set of maximal points may be solved by using a van Emde Boas tree in
+// place of the balanced binary search tree. These changes to the algorithm speed up its running
+// time to O(n log log n).[3]
 
-pub type Time = f32;
-pub type EProd = f32;
-pub type MProd = f32;
+struct Element {
+    pub time: f32,
+    pub metal: f32,
+    pub energy: f32,
+}
 
 pub struct ParetoOptimumTracker {
-    tree: TreeNode,
+    front: Vec<Element>,
 }
 
 #[derive(PartialEq)]
@@ -16,91 +55,15 @@ pub enum CheckResult {
 }
 
 impl ParetoOptimumTracker {
-    pub fn new() -> Self {
-        Self {
-            tree: TreeNode {
-                time: 0_f32,
-                e_prod: f32::MAX,
-                m_prod: f32::MAX,
-                subnodes: [const { None }; 6],
-            },
-        }
-    }
-
-    pub fn check(&mut self, time: Time, e_prod: EProd, m_prod: MProd) -> CheckResult {
-        ParetoOptimumTracker::check_inner(&mut self.tree, time, e_prod, m_prod)
-    }
-
-    fn check_inner(node: &mut TreeNode, time: Time, e_prod: EProd, m_prod: MProd) -> CheckResult {
-        match (node.time < time, node.e_prod > e_prod, node.m_prod > m_prod) {
-            (true, true, true) => {
-                *node = TreeNode {
-                    time,
-                    e_prod,
-                    m_prod,
-                    subnodes: [const { None }; 6],
-                };
-                Dominant
+    pub fn check(&mut self, time: f32, e_prod: f32, m_prod: f32) -> CheckResult {
+        let result = self.front.binary_search_by(|e| e.time.total_cmp(&time));
+        match result {
+            Ok(idx) => {
+                todo!()
             }
-            (false, false, false) => {
-                Inferior
-            }
-            (better_t, better_e, better_m) => {
-                let mut state = Incomparable;
-                if better_t && better_e {
-                    state = Self::check_idx(node, 1, time, e_prod, m_prod)
-                }
-                if state == Incomparable && better_t && better_m {
-                    state = Self::check_idx(node, 2, time, e_prod, m_prod)
-                }
-                if state == Incomparable && better_e && better_m {
-                    state = Self::check_idx(node, 5, time, e_prod, m_prod)
-                }
-                if state == Incomparable && better_t {
-                    state = Self::check_idx(node, 0, time, e_prod, m_prod)
-                }
-                if state == Incomparable && better_e {
-                    state = Self::check_idx(node, 3, time, e_prod, m_prod)
-                }
-                if state == Incomparable && better_m {
-                    state = Self::check_idx(node, 4, time, e_prod, m_prod)
-                }
-                state
-            }
+            Err(idx) => {}
         }
-    }
 
-    fn check_idx(
-        node: &mut TreeNode,
-        sub_node_idx: usize,
-        time: Time,
-        e_prod: EProd,
-        m_prod: MProd,
-    ) -> CheckResult {
-        if let Some(subtree) = &mut node.subnodes[sub_node_idx] {
-            Self::check_inner(subtree, time, e_prod, m_prod)
-        } else {
-            node.subnodes[sub_node_idx] = Some(Box::new(TreeNode {
-                time,
-                e_prod,
-                m_prod,
-                subnodes: [const { None }; 6],
-            }));
-            Incomparable
-        }
+        todo!()
     }
-}
-
-struct TreeNode {
-    // dominant point of this node
-    time: Time,
-    e_prod: EProd,
-    m_prod: MProd,
-    // 0: dominated in time
-    // 1: dominated in time and e
-    // 2: dominated in time and m
-    // 3: dominated in e
-    // 4: dominated in m
-    // 5: dominated in e and m
-    subnodes: [Option<Box<TreeNode>>; 6],
 }

@@ -1,8 +1,8 @@
 use crate::build_option::BuildOption;
-use crate::data;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
+use crate::data;
 
 #[derive(Clone)]
 struct LocalState {
@@ -20,10 +20,14 @@ struct LocalState {
     pub has_t2_con: bool,
 }
 
-struct GlobalState {
+struct SharedState {
     pub best_time: AtomicU32,
     pub sequences_checked: AtomicU32,
+    pub sequences_skipped_last: AtomicU32,
     pub sequences_skipped_time: AtomicU32,
+}
+
+struct GlobalState {
 }
 
 pub struct SearchResult {
@@ -33,16 +37,20 @@ pub struct SearchResult {
 
 pub fn search() -> SearchResult {
     let mut sequence = Vec::new();
-    let global_state = Arc::new(GlobalState {
+    let shared_state = Arc::new(SharedState {
         best_time: AtomicU32::new(u32::MAX),
         sequences_checked: AtomicU32::default(),
+        sequences_skipped_last: AtomicU32::default(),
         sequences_skipped_time: AtomicU32::default(),
     });
     let done = Arc::new(AtomicBool::new(false));
 
-    let progress_state = Arc::clone(&global_state);
+    let progress_state = Arc::clone(&shared_state);
     let progress_done = Arc::clone(&done);
     let progress_handle = thread::spawn(move || progress_updater(progress_state, progress_done));
+
+    let mut global_state = GlobalState {
+    };
 
     let initial_state = LocalState {
         time: 0_f32,
@@ -69,7 +77,8 @@ pub fn search() -> SearchResult {
             &mut sequence,
             i,
             initial_state.clone(),
-            Arc::as_ref(&global_state),
+            &mut global_state,
+            Arc::as_ref(&shared_state),
         );
 
         println!("\nBest {} sequence: {:?}", i, candidate.sequence);
@@ -83,15 +92,16 @@ pub fn search() -> SearchResult {
     progress_handle.join().unwrap();
 
     println!(
-        "Checked: {}, Skipped: {}",
-        global_state.sequences_checked.load(Ordering::Relaxed),
-        global_state.sequences_skipped_time.load(Ordering::Relaxed)
+        "Checked: {}, Shortened: {}, Skipped: {}",
+        shared_state.sequences_checked.load(Ordering::Relaxed),
+        shared_state.sequences_skipped_last.load(Ordering::Relaxed),
+        shared_state.sequences_skipped_time.load(Ordering::Relaxed),
     );
 
     best
 }
 
-fn progress_updater(progress_state: Arc<GlobalState>, progress_done: Arc<AtomicBool>) {
+fn progress_updater(progress_state: Arc<SharedState>, progress_done: Arc<AtomicBool>) {
     use std::time::Duration;
 
     while !progress_done.load(Ordering::Relaxed) {
@@ -121,10 +131,11 @@ fn search_inner(
     sequence: &mut Vec<&'static BuildOption>,
     remaining_depth: u32,
     l: LocalState,
-    g: &GlobalState,
+    g: &mut GlobalState,
+    s: &SharedState,
 ) -> SearchResult {
     if remaining_depth == 0 {
-        g.sequences_checked.fetch_add(1, Ordering::Relaxed);
+        s.sequences_checked.fetch_add(1, Ordering::Relaxed);
         return SearchResult {
             time: f32::ceil(l.time) as u32,
             sequence: sequence.clone(),
@@ -138,7 +149,7 @@ fn search_inner(
             return SearchResult {
                 time: u32::MAX,
                 sequence: Vec::new(),
-            }
+            };
         }
     } else if l.has_t2_con {
         data::BUILD_OPTIONS_T2
@@ -148,7 +159,7 @@ fn search_inner(
     } else if l.has_t1_con {
         data::BUILD_OPTIONS_T1
     } else if l.has_t1 {
-        // force building a T2 constructor (always optimal)
+        // force building a T1` constructor (always optimal)
         &[data::CONSTRUCTION_VEHICLE_T1]
     } else {
         data::BUILD_OPTIONS_CON
@@ -187,13 +198,19 @@ fn search_inner(
             f32::max(conversion_time, build_power_time).max(energy_generation_time);
 
         let total_time_u32 = f32::ceil(l.time + final_build_time) as u32;
-        if total_time_u32 > g.best_time.load(Ordering::Relaxed) {
-            g.sequences_skipped_time.fetch_add(1, Ordering::Relaxed);
+        if total_time_u32 > s.best_time.load(Ordering::Relaxed) {
+            if remaining_depth == 0 {
+                s.sequences_skipped_last.fetch_add(1, Ordering::Relaxed);
+            } else {
+                s.sequences_skipped_time.fetch_add(1, Ordering::Relaxed);
+            }
             continue;
         }
 
         // non-zero if we were not limited by energy generation
-        let energy_surplus = if final_build_time == energy_generation_time { 0_f32 } else {
+        let energy_surplus = if final_build_time == energy_generation_time {
+            0_f32
+        } else {
             (l.energy_generation * final_build_time) - energy_shortage
         };
         assert!(energy_surplus >= 0_f32);
@@ -223,7 +240,7 @@ fn search_inner(
         };
 
         sequence.push(option);
-        let candidate = search_inner(sequence, remaining_depth - 1, new_local, g);
+        let candidate = search_inner(sequence, remaining_depth - 1, new_local, g, s);
         sequence.pop();
 
         if candidate.time < best.time {
@@ -231,8 +248,8 @@ fn search_inner(
         }
     }
 
-    if best.time < g.best_time.load(Ordering::Relaxed) {
-        g.best_time.store(best.time, Ordering::Relaxed)
+    if best.time < s.best_time.load(Ordering::Relaxed) {
+        s.best_time.store(best.time, Ordering::Relaxed)
     }
 
     best

@@ -1,8 +1,11 @@
+use std::ops::Index;
 use crate::build_option::BuildOption;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
 use crate::data;
+use crate::data::BuildOptionId::*;
+use crate::data::BuildSet;
 
 #[derive(Clone)]
 struct LocalState {
@@ -14,10 +17,7 @@ struct LocalState {
     pub conversion_drain: f32,
     pub conversion_result: f32,
     pub energy_storage: u32,
-    pub has_t1: bool,
-    pub has_t1_con: bool,
-    pub has_t2: bool,
-    pub has_t2_con: bool,
+    pub has_built: BuildSet,
 }
 
 struct SharedState {
@@ -61,10 +61,7 @@ pub fn search() -> SearchResult {
         conversion_drain: 0.0,
         conversion_result: 0.0,
         energy_storage: 1000,
-        has_t1: false,
-        has_t1_con: false,
-        has_t2: false,
-        has_t2_con: false,
+        has_built: BuildSet::new()
     };
 
     let mut best = SearchResult {
@@ -107,19 +104,19 @@ fn progress_updater(progress_state: Arc<SharedState>, progress_done: Arc<AtomicB
     while !progress_done.load(Ordering::Relaxed) {
         let best_time = progress_state.best_time.load(Ordering::Relaxed);
         let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
-        let skipped = progress_state
-            .sequences_skipped_time
-            .load(Ordering::Relaxed);
+        let skipped = progress_state.sequences_skipped_time.load(Ordering::Relaxed);
+        let skipped_last = progress_state.sequences_skipped_last.load(Ordering::Relaxed);
 
         print!(
-            "\rProgress: best_time={}, checked={}, skipped={}",
+            "\rProgress: best_time: {}, checked: {}, skipped: {} + {}",
             if best_time == u32::MAX {
                 "n/a".to_string()
             } else {
                 best_time.to_string()
             },
             checked,
-            skipped
+            skipped,
+            skipped_last
         );
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
@@ -143,24 +140,24 @@ fn search_inner(
     }
 
     let options = if remaining_depth == 1 {
-        if l.has_t2_con {
-            &[data::JUGGERNAUT]
+        if l.has_built.contains(ConstructionVehicleT2) {
+            BuildSet::of(Juggernaut)
         } else {
             return SearchResult {
                 time: u32::MAX,
                 sequence: Vec::new(),
             };
         }
-    } else if l.has_t2_con {
+    } else if l.has_built.contains(ConstructionVehicleT2) {
         data::BUILD_OPTIONS_T2
-    } else if l.has_t2 {
+    } else if l.has_built.contains(AdvancedVehicleLab) {
         // force building a T2 constructor (always optimal)
-        &[data::CONSTRUCTION_VEHICLE_T2]
-    } else if l.has_t1_con {
+        BuildSet::of(ConstructionVehicleT2)
+    } else if l.has_built.contains(ConstructionVehicleT1) {
         data::BUILD_OPTIONS_T1
-    } else if l.has_t1 {
+    } else if l.has_built.contains(VehicleLab) {
         // force building a T1` constructor (always optimal)
-        &[data::CONSTRUCTION_VEHICLE_T1]
+        BuildSet::of(ConstructionVehicleT1)
     } else {
         data::BUILD_OPTIONS_CON
     };
@@ -170,7 +167,9 @@ fn search_inner(
         sequence: Vec::new(),
     };
 
-    for option in options {
+    for option_id in options.ids() {
+        let option = &data::BUILD_OPTIONS[option_id as usize];
+
         let metal_shortage = (option.cost_metal as f32) - l.metal;
         let conversion_time = if metal_shortage <= 0_f32 {
             0_f32
@@ -199,7 +198,7 @@ fn search_inner(
 
         let total_time_u32 = f32::ceil(l.time + final_build_time) as u32;
         if total_time_u32 > s.best_time.load(Ordering::Relaxed) {
-            if remaining_depth == 0 {
+            if option_id == Juggernaut {
                 s.sequences_skipped_last.fetch_add(1, Ordering::Relaxed);
             } else {
                 s.sequences_skipped_time.fetch_add(1, Ordering::Relaxed);
@@ -233,10 +232,7 @@ fn search_inner(
             conversion_drain: l.conversion_drain + option.conversion_drain,
             conversion_result: l.conversion_result + option.conversion_result,
             energy_storage: l.energy_storage + option.energy_storage,
-            has_t1: l.has_t1 || option == &data::VEHICLE_LAB,
-            has_t1_con: l.has_t1_con || option == &data::CONSTRUCTION_VEHICLE_T1,
-            has_t2: l.has_t2 || option == &data::ADVANCED_VEHICLE_LAB,
-            has_t2_con: l.has_t2_con || option == &data::CONSTRUCTION_VEHICLE_T2,
+            has_built: l.has_built.clone().with(option_id)
         };
 
         sequence.push(option);

@@ -1,5 +1,7 @@
 use crate::build_option::BuildOption;
 use std::mem;
+use crate::data;
+use crate::data::BuildOptionId::{ConstructionVehicleT1, ConstructionVehicleT2};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
@@ -241,3 +243,14 @@ pub const BUILD_OPTIONS_T2: BuildSet = BuildSet::new()
     .with(BuildOptionId::AdvancedEnergyConverter)
     .with(BuildOptionId::FusionReactor)
     .with(BuildOptionId::AdvancedFusionReactor);
+
+
+pub fn get_build_options(build_set: &BuildSet) -> BuildSet {
+    if build_set.contains(ConstructionVehicleT2) {
+        data::BUILD_OPTIONS_T2
+    } else if build_set.contains(ConstructionVehicleT1) {
+        data::BUILD_OPTIONS_T1
+    } else {
+        data::BUILD_OPTIONS_CON
+    }
+}

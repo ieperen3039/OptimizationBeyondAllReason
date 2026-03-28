@@ -66,30 +66,28 @@ impl BruteForceSearcher {
             };
         }
 
-        let mut options = if l.has_built.contains(ConstructionVehicleT2) {
-            data::BUILD_OPTIONS_T2
-        } else if l.has_built.contains(AdvancedVehicleLab) {
-            // force building a T2 constructor (always optimal)
-            BuildSet::of(ConstructionVehicleT2)
-        } else if l.has_built.contains(ConstructionVehicleT1) {
-            data::BUILD_OPTIONS_T1
-        } else if l.has_built.contains(VehicleLab) {
-            // force building a T1` constructor (always optimal)
-            BuildSet::of(ConstructionVehicleT1)
-        } else {
-            data::BUILD_OPTIONS_CON
-        };
+        let options = data::get_build_options(&l.has_built);
 
-        if remaining_depth == 1 {
+        let options = if remaining_depth == 1 {
             if options.contains(self.target) {
-                options = BuildSet::of(self.target)
+                BuildSet::of(self.target)
             } else {
                 return SearchResult {
                     time: f32::MAX,
                     sequence: Vec::new(),
                 };
             }
-        }
+        } else if options.contains(ConstructionVehicleT1) && !l.has_built.contains(ConstructionVehicleT1) {
+            // force building a T1` constructor (always optimal)
+            BuildSet::of(ConstructionVehicleT1)
+        } else if options.contains(ConstructionVehicleT2) && !l.has_built.contains(ConstructionVehicleT2) {
+            // force building a T2 constructor (always optimal)
+            BuildSet::of(ConstructionVehicleT2)
+        } else {
+            options
+        };
+
+
 
         let mut best = SearchResult {
             time: f32::MAX,

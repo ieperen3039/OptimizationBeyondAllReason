@@ -6,6 +6,7 @@ mod data;
 mod build_option;
 mod search_handler;
 mod brute_force_search;
+mod optimization_searcher;
 
 fn main() {
     let result = search_handler::search();

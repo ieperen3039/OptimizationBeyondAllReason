@@ -1,10 +1,14 @@
+use crate::build_option::BuildOption;
+use crate::data::BuildOptionId::{ConstructionVehicleT2, EnergyConverter, SolarCollector, WindTurbine};
+use crate::data::BuildSet;
 
 mod data;
 mod build_option;
-mod breadth_first_search;
+mod search_handler;
+mod brute_force_search;
 
 fn main() {
-    let result = breadth_first_search::search();
-    println!("Best sequence: {:?} in {} seconds", result.sequence, result.time);
+    let result = search_handler::search();
+    println!("Best sequence: {:?} in {} seconds", result.sequence.iter().map(|i| i.data()), result.time);
 }
 

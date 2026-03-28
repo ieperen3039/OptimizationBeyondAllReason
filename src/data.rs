@@ -1,8 +1,8 @@
 use crate::build_option::BuildOption;
 use std::mem;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-#[repr(u16)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[repr(u8)]
 pub enum BuildOptionId {
     WindTurbine,
     SolarCollector,
@@ -19,9 +19,15 @@ pub enum BuildOptionId {
     Juggernaut,
 }
 
-impl From<u16> for BuildOptionId {
-    fn from(value: u16) -> Self {
+impl From<u8> for BuildOptionId {
+    fn from(value: u8) -> Self {
         unsafe { mem::transmute(value) }
+    }
+}
+
+impl BuildOptionId {
+    pub fn data(self) -> &'static BuildOption {
+        &BUILD_OPTIONS[self as usize]
     }
 }
 
@@ -173,7 +179,7 @@ pub const BUILD_OPTIONS: [BuildOption; 13] = [
 
 #[derive(Clone)]
 pub struct BuildSet {
-    bit_mask: u16,
+    bit_mask: u32,
 }
 
 impl BuildSet {
@@ -181,27 +187,39 @@ impl BuildSet {
         Self { bit_mask: 0 }
     }
     pub const fn of(element: BuildOptionId) -> Self {
-        Self::new().with(element)
+        Self { bit_mask: (1 << element as u32) }
     }
     pub const fn contains(&self, building: BuildOptionId) -> bool {
-        self.bit_mask & (building as u16) != 0
+        (self.bit_mask & (1 << building as u32)) != 0
+    }
+    pub const fn contains_all(&self, other: BuildSet) -> bool {
+        (self.bit_mask & other.bit_mask) != 0
     }
     pub const fn add(&mut self, building: BuildOptionId) {
-        self.bit_mask |= (building as u16);
+        self.bit_mask |= (1 << building as u32);
+    }
+    pub const fn add_all(&mut self, other: BuildSet) {
+        self.bit_mask |= other.bit_mask;
+    }
+    pub const fn remove(&mut self, building: BuildOptionId) {
+        self.bit_mask &= !(1 << building as u32);
+    }
+    pub const fn remove_all(&mut self, building: BuildSet) {
+        self.bit_mask &= !building.bit_mask;
     }
     pub const fn with(self, building: BuildOptionId) -> Self {
         Self {
-            bit_mask: self.bit_mask | (building as u16),
+            bit_mask: self.bit_mask | (1 << building as u32),
         }
     }
     pub fn ids(&self) -> impl Iterator<Item = BuildOptionId> {
-        (0_u16..16_u16)
-            .filter(|i| self.bit_mask & (*i) != 0)
-            .map(u16::into)
+        (0_u8..32_u8)
+            .filter(|i| self.bit_mask & (1 << i) != 0)
+            .map(u8::into)
     }
     pub fn iter(&self) -> impl Iterator<Item = &BuildOption> {
-        (0_u16..16_u16)
-            .filter(|i| self.bit_mask & (*i) != 0)
+        (0_u8..32_u8)
+            .filter(|i| self.bit_mask & (1 << i) != 0)
             .map(|i| &BUILD_OPTIONS[i as usize])
     }
 }

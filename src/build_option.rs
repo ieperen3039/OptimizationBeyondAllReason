@@ -7,6 +7,7 @@ pub struct BuildOption {
     pub cost_energy: u32,
     pub cost_bp: u32,
     pub energy_generation: u32,
+    pub metal_generation: u32,
     pub build_power: u32,
     pub conversion_drain: f32,
     pub conversion_result: f32,

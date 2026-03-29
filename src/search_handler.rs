@@ -5,13 +5,15 @@ use crate::data::{BuildOptionId, BuildSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
+use crate::brute_force_search::BruteForceSearcher;
 
 #[derive(Clone)]
-pub(crate) struct LocalState {
+pub struct LocalState {
     pub time: f32,
     pub metal: f32,
     pub energy: f32,
     pub energy_generation: f32,
+    pub metal_generation: f32,
     pub build_power: u32,
     pub conversion_drain: f32,
     pub conversion_result: f32,
@@ -19,7 +21,8 @@ pub(crate) struct LocalState {
     pub has_built: BuildSet,
 }
 
-pub(crate) struct SharedState {
+pub struct SharedState {
+    pub done: AtomicBool,
     pub best_time: AtomicU32,
     pub sequences_checked: AtomicU32,
     pub sequences_skipped: AtomicU32,
@@ -29,47 +32,32 @@ pub struct SearchResult {
     pub time: f32,
     pub sequence: Vec<BuildOptionId>,
 }
-
-pub fn search() -> SearchResult {
+pub fn search(mut searcher: BruteForceSearcher, initial_state : LocalState) -> SearchResult {
     let shared_state = Arc::new(SharedState {
+        done: AtomicBool::new(false),
         best_time: AtomicU32::new(u32::MAX),
         sequences_checked: AtomicU32::default(),
         sequences_skipped: AtomicU32::default(),
     });
-    let done = Arc::new(AtomicBool::new(false));
 
     let progress_state = Arc::clone(&shared_state);
-    let progress_done = Arc::clone(&done);
-    let progress_handle = thread::spawn(move || progress_updater(progress_state, progress_done));
+    let progress_handle = thread::spawn(move || progress_updater(progress_state));
 
-    let initial_state = LocalState {
-        time: 0_f32,
-        metal: 1000_f32,
-        energy: 1000_f32,
-        energy_generation: 3f32,
-        build_power: 300,
-        conversion_drain: 0.0,
-        conversion_result: 0.0,
-        energy_storage: 1000,
-        has_built: BuildSet::new(),
-    };
-
-    let mut searcher = brute_force_search::BruteForceSearcher::new(AdvancedVehicleLab, 15);
-
-    let best = searcher.search(
+    let result = searcher.search(
         &shared_state,
         initial_state,
     );
+    let best = result;
 
-    done.store(true, Ordering::Relaxed);
+    shared_state.done.store(true, Ordering::Relaxed);
     progress_handle.join().unwrap();
 
     best
 }
-fn progress_updater(progress_state: Arc<SharedState>, progress_done: Arc<AtomicBool>) {
+fn progress_updater(progress_state: Arc<SharedState>) {
     use std::time::Duration;
 
-    while !progress_done.load(Ordering::Relaxed) {
+    while !progress_state.done.load(Ordering::Relaxed) {
         let best_time = progress_state.best_time.load(Ordering::Relaxed);
         let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
         let skipped = progress_state
@@ -103,8 +91,8 @@ impl LocalState {
         let metal_shortage = (option.cost_metal as f32) - self.metal;
         let conversion_time = if metal_shortage <= 0_f32 {
             0_f32
-        } else if self.conversion_result > 0_f32 {
-            (metal_shortage) / self.conversion_result
+        } else if (self.conversion_result > 0_f32) || (self.metal_generation > 0_f32) {
+            (metal_shortage) / (self.conversion_result * self.metal_generation)
         } else {
             // not enough metal stored, no metal conversion
             return None;
@@ -152,6 +140,7 @@ impl LocalState {
             metal: final_metal_gained - metal_shortage,
             energy: f32::clamp(energy_surplus, 0_f32, self.energy_storage as f32),
             energy_generation: self.energy_generation + option.energy_generation as f32,
+            metal_generation: self.metal_generation + option.metal_generation as f32,
             build_power: self.build_power + option.build_power,
             conversion_drain: self.conversion_drain + option.conversion_drain,
             conversion_result: self.conversion_result + option.conversion_result,

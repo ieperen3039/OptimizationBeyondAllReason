@@ -7,6 +7,7 @@ mod build_option;
 mod search_handler;
 mod brute_force_search;
 mod optimization_searcher;
+mod searcher;
 
 fn main() {
     let initial_state = LocalState {
@@ -22,9 +23,10 @@ fn main() {
         has_built: BuildSet::new(),
     };
 
-    let searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
-    let result = search_handler::search(searcher, initial_state);
-    
+    let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
+
+    let result = search_handler::search(&mut searcher, initial_state);
+
     println!("Best sequence: {:?} in {} seconds", result.sequence.iter().map(|i| i.data()), result.time);
 }
 

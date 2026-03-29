@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
 use crate::brute_force_search::BruteForceSearcher;
+use crate::searcher::Searcher;
 
 #[derive(Clone)]
 pub struct LocalState {
@@ -32,7 +33,7 @@ pub struct SearchResult {
     pub time: f32,
     pub sequence: Vec<BuildOptionId>,
 }
-pub fn search(mut searcher: BruteForceSearcher, initial_state : LocalState) -> SearchResult {
+pub fn search(searcher: &mut dyn Searcher, initial_state : LocalState) -> SearchResult {
     let shared_state = Arc::new(SharedState {
         done: AtomicBool::new(false),
         best_time: AtomicU32::new(u32::MAX),

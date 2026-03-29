@@ -1,10 +1,11 @@
 use crate::data;
 use crate::data::BuildOptionId::{
-    AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
+    ConstructionVehicleT1, ConstructionVehicleT2,
 };
 use crate::data::{BuildOptionId, BuildSet};
 use crate::search_handler::{LocalState, SearchResult, SharedState};
-use std::sync::atomic::{AtomicU32, Ordering};
+use crate::searcher::Searcher;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 pub struct BruteForceSearcher {
     target: BuildOptionId,
@@ -17,40 +18,10 @@ impl BruteForceSearcher {
         Self {
             target,
             max_buildings,
-            best_time: f32::MAX
+            best_time: f32::MAX,
         }
     }
-
-    pub fn search(
-        &mut self,
-        shared_state: &Arc<SharedState>,
-        initial_state: LocalState,
-    ) -> SearchResult {
-        let mut best = SearchResult {
-            time: f32::MAX,
-            sequence: Vec::new(),
-        };
-
-        let mut current_sequence = Vec::new();
-
-        for search_depth in 2..self.max_buildings {
-            let candidate = self.search_inner(
-                &mut current_sequence,
-                search_depth,
-                initial_state.clone(),
-                Arc::as_ref(&shared_state),
-            );
-
-            println!("\nBest {} sequence: {:?}", search_depth, candidate.sequence);
-
-            if candidate.time < best.time {
-                best = candidate;
-            }
-        }
-
-        best
-    }
-
+    
     fn search_inner(
         &mut self,
         sequence: &mut Vec<BuildOptionId>,
@@ -77,17 +48,19 @@ impl BruteForceSearcher {
                     sequence: Vec::new(),
                 };
             }
-        } else if options.contains(ConstructionVehicleT1) && !l.has_built.contains(ConstructionVehicleT1) {
+        } else if options.contains(ConstructionVehicleT1)
+            && !l.has_built.contains(ConstructionVehicleT1)
+        {
             // force building a T1` constructor (always optimal)
             BuildSet::of(ConstructionVehicleT1)
-        } else if options.contains(ConstructionVehicleT2) && !l.has_built.contains(ConstructionVehicleT2) {
+        } else if options.contains(ConstructionVehicleT2)
+            && !l.has_built.contains(ConstructionVehicleT2)
+        {
             // force building a T2 constructor (always optimal)
             BuildSet::of(ConstructionVehicleT2)
         } else {
             options
         };
-
-
 
         let mut best = SearchResult {
             time: f32::MAX,
@@ -95,15 +68,13 @@ impl BruteForceSearcher {
         };
 
         for option in options.ids() {
-            let new_local =
-
-                match l.compute_next(option, self.best_time) {
-                    Some(value) => value,
-                    None => {
-                        s.sequences_skipped.fetch_add(1, Ordering::Relaxed);
-                        continue;
-                    }
-                };
+            let new_local = match l.compute_next(option, self.best_time) {
+                Some(value) => value,
+                None => {
+                    s.sequences_skipped.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+            };
 
             sequence.push(option);
             let candidate = self.search_inner(sequence, remaining_depth - 1, new_local, s);
@@ -117,6 +88,39 @@ impl BruteForceSearcher {
         if best.time < self.best_time {
             let best_time_u32 = f32::ceil(best.time) as u32;
             s.best_time.store(best_time_u32, Ordering::Relaxed)
+        }
+
+        best
+    }
+}
+
+
+impl Searcher for BruteForceSearcher {
+    fn search(
+        &mut self,
+        shared_state: &Arc<SharedState>,
+        initial_state: LocalState,
+    ) -> SearchResult {
+        let mut best = SearchResult {
+            time: f32::MAX,
+            sequence: Vec::new(),
+        };
+
+        let mut current_sequence = Vec::new();
+
+        for search_depth in 2..self.max_buildings {
+            let candidate = self.search_inner(
+                &mut current_sequence,
+                search_depth,
+                initial_state.clone(),
+                Arc::as_ref(&shared_state),
+            );
+
+            println!("\nBest {} sequence: {:?}", search_depth, candidate.sequence);
+
+            if candidate.time < best.time {
+                best = candidate;
+            }
         }
 
         best

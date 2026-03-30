@@ -7,170 +7,165 @@ use std::sync::Arc;
 
 pub struct OptimizationSearcher {
     target: BuildOptionId,
+    target_time: f32,
     sequence: Vec<BuildOptionId>,
 }
 
-impl OptimizationSearcher {
-    pub fn new(sequence: Vec<BuildOptionId>, target: BuildOptionId) -> Self {
-        Self { target, sequence }
-    }
+#[derive(PartialOrd)]
+struct OptimizationTarget {
+    pub num_targets: usize,
+    pub time: f32,
+}
 
-    fn compute_time<Iter: Iterator<Item = BuildOptionId>>(
-        &self,
-        sequence: Iter,
-        mut state: LocalState,
-        max_time: f32,
-    ) -> f32 {
-        for build_id in sequence {
-            match state.compute_next(build_id, max_time) {
-                None => return f32::MAX,
-                Some(new_state) => state = new_state,
-            }
+impl OptimizationTarget {
+    pub fn inf() -> Self {
+        Self {
+            num_targets: usize::MAX,
+            time: f32::MAX,
         }
-        state.time
-    }
-
-    fn try_swaps(
-        &self,
-        sequence: &Vec<BuildOptionId>,
-        initial_state: LocalState,
-        max_time: f32,
-    ) -> (Vec<BuildOptionId>, f32) {
-        let mut best_time = max_time;
-        let mut best_sequence = Vec::new();
-        let mut state_to_i = initial_state;
-
-        // we do not need to swap the target building
-        for i in 0..(sequence.len() - 2) {
-            if sequence[i] == sequence[i + 1] {
-                // swap would be ineffective
-                continue;
-            }
-
-            let suffix = std::iter::once(sequence[i + 1])
-                .chain(std::iter::once(sequence[i]))
-                .chain(sequence[(i + 2)..].iter().copied());
-
-            let time = self.compute_time(suffix, state_to_i.clone(), best_time);
-            if time < best_time {
-                best_time = time;
-                best_sequence = sequence.clone();
-            }
-
-            if i < sequence.len() {
-                state_to_i = state_to_i
-                    .compute_next(sequence[i], f32::MAX)
-                    .expect("sequence should be valid");
-            }
-        }
-
-        (best_sequence, best_time)
-    }
-
-    fn try_insertions(
-        &self,
-        sequence: &Vec<BuildOptionId>,
-        initial_state: LocalState,
-        max_time: f32,
-    ) -> (Vec<BuildOptionId>, f32) {
-        let mut best_time = max_time;
-        let mut best_sequence = Vec::with_capacity(sequence.len() + 1);
-        let mut state_to_i = initial_state;
-
-        // the last building in the sequence is our target, we do not need to insert after that
-        for i in 0..sequence.len() {
-            let build_options = data::get_build_options(&state_to_i.has_built);
-            for option in build_options.ids() {
-                let suffix = std::iter::once(option).chain(sequence[i..].iter().copied());
-                let time = self.compute_time(suffix, state_to_i.clone(), best_time);
-
-                if time < best_time {
-                    best_time = time;
-
-                    best_sequence.clear();
-                    best_sequence.extend_from_slice(&sequence[..i]);
-                    best_sequence.push(option);
-                    best_sequence.extend_from_slice(&sequence[i..]);
-                }
-            }
-
-            if i < sequence.len() {
-                state_to_i = state_to_i
-                    .compute_next(sequence[i], f32::MAX)
-                    .expect("sequence should be valid");
-            }
-        }
-
-        (best_sequence, best_time)
-    }
-
-    fn try_deletions(
-        &self,
-        sequence: &Vec<BuildOptionId>,
-        initial_state: LocalState,
-        max_time: f32,
-    ) -> (Vec<BuildOptionId>, f32) {
-        let mut best_time = max_time;
-        let mut best_sequence = Vec::with_capacity(sequence.len() - 1);
-        let mut state_to_i = initial_state;
-
-        // the last building in the sequence is our target, do not delete it
-        for i in 0..sequence.len() {
-            let time = self.compute_time(
-                sequence[(i + 1)..].iter().copied(),
-                state_to_i.clone(),
-                best_time,
-            );
-
-            if time < best_time {
-                best_time = time;
-
-                best_sequence.clear();
-                best_sequence.extend_from_slice(&sequence[..i]);
-                best_sequence.extend_from_slice(&sequence[(i + 1)..]);
-            }
-
-            if i < sequence.len() {
-                state_to_i = state_to_i
-                    .compute_next(sequence[i], f32::MAX)
-                    .expect("sequence should be valid");
-            }
-        }
-
-        (best_sequence, best_time)
     }
 }
 
-impl Searcher for OptimizationSearcher {
-    fn search(
-        &mut self,
-        shared_state: &Arc<SharedState>,
+impl OptimizationSearcher {
+    pub fn new(sequence: Vec<BuildOptionId>, target: BuildOptionId, time: u32) -> Self {
+        Self {
+            target,
+            target_time: time as f32,
+            sequence,
+        }
+    }
+
+    fn apply_insertion(
+        &self,
+        insertion: SequenceInsertion,
+        sequence: &Vec<BuildOptionId>,
         initial_state: LocalState,
-    ) -> SearchResult {
-        let mut best_sequence = Vec::new();
-        let mut last_best_time;
-        let mut best_time = f32::MAX;
+        max_time: f32,
+    ) -> OptimizationTarget {
+        let suffix = sequence[..insertion.idx]
+            .iter()
+            .copied()
+            .chain(std::iter::once(insertion.building))
+            .chain(sequence[insertion.idx..].iter().copied());
 
-        loop {
-            last_best_time = best_time;
-            let (new_sequence, new_time) = self.try_swaps(&self.sequence, initial_state.clone(), best_time);
-            let (new_sequence, new_time) = self.try_insertions(&new_sequence, initial_state.clone(), new_time);
-            let (new_sequence, new_time) = self.try_deletions(&new_sequence, initial_state.clone(), new_time);
+        OptimizationSearcher::compute_target(suffix, initial_state, self.target, max_time)
+    }
 
-            best_time = new_time;
-            if best_time < last_best_time {
-                best_sequence = new_sequence;
-                shared_state
-                    .best_time
-                    .store(f32::ceil(best_time) as u32, Ordering::Relaxed);
-            } else {
-                break;
+    fn apply_deletion(
+        &self,
+        deletion: SequenceDeletion,
+        sequence: &Vec<BuildOptionId>,
+        initial_state: LocalState,
+        max_time: f32,
+    ) -> OptimizationTarget {
+        let suffix = sequence[..deletion.idx]
+            .iter()
+            .copied()
+            .chain(sequence[(deletion.idx + 1)..].iter().copied());
+
+        OptimizationSearcher::compute_target(suffix, initial_state, self.target, max_time)
+    }
+
+    fn compute_target<Iter: Iterator<Item = BuildOptionId>>(
+        sequence: Iter,
+        mut state: LocalState,
+        target: BuildOptionId,
+        max_time: f32,
+    ) -> OptimizationTarget {
+        let mut num_targets = 0;
+        for build_id in sequence {
+            if build_id == target {
+                num_targets += 1;
+            }
+
+            match state.compute_next(build_id, max_time) {
+                None => return OptimizationTarget::inf(),
+                Some(new_state) => state = new_state,
+            }
+        }
+        OptimizationTarget {
+            num_targets,
+            time: state.time,
+        }
+    }
+}
+struct SequenceInsertion {
+    idx: usize,
+    building: BuildOptionId,
+}
+
+impl SequenceInsertion {
+    /// generates every possible insertion of 1 building in `sequence`
+    pub fn generate(
+        sequence: &Vec<BuildOptionId>,
+        initial_state: LocalState,
+    ) -> Vec<SequenceInsertion> {
+        let mut state_to_i = initial_state;
+        let mut insertions = Vec::new();
+
+        // the last building in the sequence is a target, we do not need to insert after that
+        for i in 0..sequence.len() {
+            let build_options = data::get_build_options(&state_to_i.has_built);
+            for option in build_options.ids() {
+                insertions.push(SequenceInsertion {
+                    idx: i,
+                    building: option,
+                })
+            }
+
+            if i < sequence.len() {
+                state_to_i = state_to_i
+                    .compute_next(sequence[i], f32::MAX)
+                    .expect("sequence should be valid");
             }
         }
 
-        SearchResult {
-            time: best_time,
-            sequence: best_sequence,
+        insertions
+    }
+}
+
+struct SequenceDeletion {
+    idx: usize,
+}
+
+impl SequenceDeletion {
+    pub fn generate(
+        sequence: &Vec<BuildOptionId>,
+        initial_state: LocalState,
+    ) -> Vec<SequenceDeletion> {
+        let mut state_to_i = initial_state;
+        let mut insertions = Vec::new();
+
+        // the last building in the sequence is our target, do not delete it
+        for i in 0..sequence.len() {
+            insertions.push(SequenceDeletion {
+                idx: 0,
+            });
+
+            if i < sequence.len() {
+                state_to_i = state_to_i
+                    .compute_next(sequence[i], f32::MAX)
+                    .expect("sequence should be valid");
+            }
         }
+
+        insertions
+    }
+}
+
+impl PartialEq for OptimizationTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.num_targets == other.num_targets
+            && self.time.total_cmp(&other.time) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for OptimizationTarget {}
+
+impl Ord for OptimizationTarget {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.num_targets
+            .cmp(&other.num_targets)
+            .then_with(|| self.time.total_cmp(&other.time).reverse())
     }
 }

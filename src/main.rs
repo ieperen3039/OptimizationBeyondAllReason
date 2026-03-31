@@ -9,20 +9,11 @@ mod brute_force_search;
 mod optimization_searcher;
 mod searcher;
 mod policy;
+pub mod machine_learning;
+mod random;
 
 fn main() {
-    let initial_state = LocalState {
-        time: 0_f32,
-        metal: 1000_f32,
-        energy: 1000_f32,
-        energy_generation: 3f32,
-        metal_generation: 2f32,
-        build_power: 300,
-        conversion_drain: 0.0,
-        conversion_result: 0.0,
-        energy_storage: 1000,
-        has_built: BuildSet::new(),
-    };
+    let initial_state = LocalState::initial();
 
     let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
 

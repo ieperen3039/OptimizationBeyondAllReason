@@ -8,6 +8,7 @@ mod search_handler;
 mod brute_force_search;
 mod optimization_searcher;
 mod searcher;
+mod policy;
 
 fn main() {
     let initial_state = LocalState {

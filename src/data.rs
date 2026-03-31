@@ -237,6 +237,9 @@ impl BuildSet {
             .filter(|i| self.bit_mask & (1 << i) != 0)
             .map(|i| &BUILD_OPTIONS[i as usize])
     }
+    pub fn len(&self) -> usize {
+        self.bit_mask.count_ones() as usize
+    }
 }
 
 pub const BUILD_OPTIONS_CON: BuildSet = BuildSet::new()

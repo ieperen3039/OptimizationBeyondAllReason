@@ -93,7 +93,7 @@ impl LocalState {
         let conversion_time = if metal_shortage <= 0_f32 {
             0_f32
         } else if (self.conversion_result > 0_f32) || (self.metal_generation > 0_f32) {
-            (metal_shortage) / (self.conversion_result * self.metal_generation)
+            (metal_shortage) / (self.conversion_result + self.metal_generation)
         } else {
             // not enough metal stored, no metal conversion
             return None;

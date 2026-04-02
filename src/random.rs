@@ -6,6 +6,7 @@ pub struct MyRandom {
 
 impl MyRandom {
     pub fn new(seed: u64) -> Self {
+        assert_ne!(seed, 0);
         Self {
             rng_state: Cell::new(seed),
         }

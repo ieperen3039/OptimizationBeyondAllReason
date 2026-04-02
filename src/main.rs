@@ -18,7 +18,7 @@ fn main() {
     let initial_state = LocalState::initial();
 
     // let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
-    let mut searcher = ReinforcementLearning::new(10000, 0, 3000.0, Box::from(ResourceGenerationReward));
+    let mut searcher = ReinforcementLearning::new(10000, 0x3039, 3000.0, Box::from(ResourceGenerationReward));
 
     let result = search_handler::search(&mut searcher, initial_state);
 

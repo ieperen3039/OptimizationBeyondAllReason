@@ -125,7 +125,7 @@ impl ReinforcementLearning {
 
             // Get probabilities for sampling
             let probabilities = logits.softmax();
-            let mut chosen_index = Self::select(probabilities, self.rng.next_f32());
+            let chosen_index = Self::select(probabilities, self.rng.next_f32());
 
             let next_build = BuildOptionId::from(chosen_index as u8);
             let next_state = state.compute_next(next_build, self.max_game_time);

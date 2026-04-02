@@ -1,5 +1,6 @@
 use crate::data;
 use crate::data::BuildOptionId;
+use crate::random::MyRandom;
 use crate::search_handler::LocalState;
 
 pub trait Policy {
@@ -7,12 +8,14 @@ pub trait Policy {
 }
 
 /// not actually random because policies are stateless
-struct PolicyRandom;
+struct PolicyRandom {
+    rng: MyRandom,
+}
 
 impl Policy for PolicyRandom {
-    fn get_next(&self, state: &LocalState, sequence: &Vec<BuildOptionId>) -> BuildOptionId {
+    fn get_next(&self, state: &LocalState, _sequence: &Vec<BuildOptionId>) -> BuildOptionId {
         let build_options = data::get_build_options(&state.has_built);
-        let idx = sequence.len() % build_options.len();
+        let idx = (self.rng.next_u32() as usize) % build_options.len();
         build_options.ids().nth(idx).unwrap()
     }
 }

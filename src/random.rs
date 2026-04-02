@@ -11,6 +11,11 @@ impl MyRandom {
         }
     }
 
+    /// it is safe to use next_u32 from another MyRandom, it will generate a different sequence
+    pub fn new_from_u32(seed: u32) -> MyRandom {
+        Self::new(((seed as u64) << 32) + (seed as u64))
+    }
+
     pub fn next_u32(&self) -> u32 {
         let mut x = self.rng_state.get();
 

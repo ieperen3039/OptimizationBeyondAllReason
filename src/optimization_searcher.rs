@@ -1,9 +1,6 @@
 use crate::data;
 use crate::data::BuildOptionId;
-use crate::search_handler::{LocalState, SearchResult, SharedState};
-use crate::searcher::Searcher;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use crate::search_handler::LocalState;
 
 pub struct OptimizationSearcher {
     target: BuildOptionId,

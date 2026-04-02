@@ -1,4 +1,3 @@
-use crate::data::BuildOptionId::*;
 use crate::data::{BuildOptionId, BuildSet};
 use crate::searcher::Searcher;
 use crate::data;

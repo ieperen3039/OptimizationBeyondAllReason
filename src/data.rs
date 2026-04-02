@@ -210,6 +210,7 @@ impl BuildSet {
     pub const fn contains_all(&self, other: BuildSet) -> bool {
         (self.bit_mask & other.bit_mask) != 0
     }
+    #[allow(unused_parens)]
     pub const fn add(&mut self, building: BuildOptionId) {
         self.bit_mask |= (1 << building as u32);
     }

@@ -6,8 +6,8 @@ pub trait Reward {
         1.0
     }
 }
-pub struct EnergyGenerationReward;
-impl Reward for EnergyGenerationReward {
+pub struct ResourceGenerationReward;
+impl Reward for ResourceGenerationReward {
     fn calculate(&self, before: &LocalState, after: &LocalState) -> f32 {
         let energy_generation_gain = after.energy_generation - before.energy_generation;
         let metal_generation_gain = after.compute_potential_metal_production()

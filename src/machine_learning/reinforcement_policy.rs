@@ -58,15 +58,17 @@ impl Policy for DeterministicReinforcementPolicy {
         let can_build = data::get_build_options(&state.has_built);
         // Get probabilities for sampling
         let probabilities = logits.softmax().array();
-        let (index, _value) = probabilities
+        let probabilities : Vec<_> = probabilities
             .iter()
             .enumerate()
             .filter(|(i, _)| *i < data::NUM_BUILD_OPTIONS)
             .filter(|(i, _)| can_build.contains(BuildOptionId::from(*i)))
+            .collect();
+        let (index, _value) = probabilities.iter()
             .max_by(|(_, v1), (_, v2)| f32::total_cmp(v1, v2))
             .unwrap();
-        println!("Picking {index} from {probabilities:?}");
+        println!("Picking {index} from {probabilities:?}"); // , probabilities.iter().map(|p| format!("{p:.2}")).collect::<Vec<_>>()
 
-        BuildOptionId::from(index)
+        BuildOptionId::from(*index)
     }
 }

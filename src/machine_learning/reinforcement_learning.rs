@@ -113,7 +113,7 @@ impl ReinforcementLearning {
     ) {
         // convert rewards into returns
         let mut running_return = 0.0;
-        let reward_gamma = self.reward_model.gamma();
+        let reward_gamma = self.reward_model.future_reward_gamma();
         for step in steps.iter_mut().rev() {
             running_return = step.reward + (reward_gamma * running_return);
             step.reward = running_return;
@@ -165,7 +165,6 @@ impl ReinforcementLearning {
             let next_state = next_state.unwrap();
 
             let reward = self.reward_model.calculate(&state, &next_state);
-            assert!(reward >= 0.0);
             steps.push(Step {
                 state,
                 action: chosen_index,

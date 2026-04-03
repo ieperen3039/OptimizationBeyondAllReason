@@ -23,6 +23,12 @@ pub enum BuildOptionId {
     Juggernaut,
 }
 
+impl BuildOptionId {
+    pub fn data(self) -> &'static BuildOption {
+        &BUILD_OPTIONS[self as usize]
+    }
+}
+
 impl From<u8> for BuildOptionId {
     fn from(value: u8) -> Self {
         assert!((value as usize) < NUM_BUILD_OPTIONS);
@@ -34,12 +40,6 @@ impl From<usize> for BuildOptionId {
     fn from(value: usize) -> Self {
         assert!((value) < NUM_BUILD_OPTIONS);
         unsafe { mem::transmute(value as u8) }
-    }
-}
-
-impl BuildOptionId {
-    pub fn data(self) -> &'static BuildOption {
-        &BUILD_OPTIONS[self as usize]
     }
 }
 

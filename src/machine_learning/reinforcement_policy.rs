@@ -6,7 +6,7 @@ use crate::machine_learning::reward::ResourceGenerationReward;
 use crate::policy::Policy;
 use crate::random::MyRandom;
 use crate::search_handler::LocalState;
-use dfdx::nn::{LoadFromNpz, Module};
+use dfdx::nn::Module;
 use dfdx::tensor::{AsArray, Cpu};
 use simple_error::SimpleError;
 use std::path::Path;
@@ -55,16 +55,18 @@ impl Policy for DeterministicReinforcementPolicy {
     ) -> BuildOptionId {
         let input = ReinforcementLearning::build_input_tensor(state, &self.device);
         let logits = self.model.forward(input);
+        let can_build = data::get_build_options(&state.has_built);
         // Get probabilities for sampling
         let probabilities = logits.softmax().array();
         let (index, _value) = probabilities
             .iter()
             .enumerate()
+            .filter(|(i, _)| *i < data::NUM_BUILD_OPTIONS)
+            .filter(|(i, _)| can_build.contains(BuildOptionId::from(*i)))
             .max_by(|(_, v1), (_, v2)| f32::total_cmp(v1, v2))
             .unwrap();
         println!("Picking {index} from {probabilities:?}");
-        assert!(index <= (u8::MAX as usize));
 
-        BuildOptionId::from(index as u8)
+        BuildOptionId::from(index)
     }
 }

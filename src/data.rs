@@ -30,6 +30,13 @@ impl From<u8> for BuildOptionId {
     }
 }
 
+impl From<usize> for BuildOptionId {
+    fn from(value: usize) -> Self {
+        assert!((value) < NUM_BUILD_OPTIONS);
+        unsafe { mem::transmute(value as u8) }
+    }
+}
+
 impl BuildOptionId {
     pub fn data(self) -> &'static BuildOption {
         &BUILD_OPTIONS[self as usize]

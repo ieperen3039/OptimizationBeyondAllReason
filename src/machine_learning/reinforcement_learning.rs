@@ -1,8 +1,8 @@
 use crate::data;
-use crate::data::BuildOptionId;
 use crate::data::BuildOptionId::{
     AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
 };
+use crate::data::{BuildOptionId, BuildSet};
 use crate::machine_learning::reinforcement_policy::DeterministicReinforcementPolicy;
 use crate::machine_learning::reward::Reward;
 use crate::policy::Policy;
@@ -15,7 +15,7 @@ use dfdx::nn::{
 use dfdx::optim::{Optimizer, SgdConfig};
 use dfdx::prelude::{Linear, ReLU};
 use dfdx::tensor::{Cpu, Tensor, TensorFrom, Trace};
-use dfdx::tensor_ops::{Backward, SelectTo};
+use dfdx::tensor_ops::{Backward, ChooseFrom, SelectTo};
 use dfdx::{optim::Sgd, shapes::Rank1};
 use simple_error::SimpleError;
 use std::ops::Index;
@@ -119,9 +119,15 @@ impl ReinforcementLearning {
             step.reward = running_return;
         }
 
+        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; 32]);
+
         for step in steps {
             let input = Self::build_input_tensor(&step.state, &self.device);
             let logits = model.forward(input.traced(model.alloc_grads()));
+
+            let can_build_tensor =
+                self.buildset_to_tensor(data::get_build_options(&step.state.has_built));
+            let logits = can_build_tensor.choose(logits, zero_logits.clone());
 
             let log_prob = logits.log_softmax().select(self.device.tensor(step.action));
 
@@ -134,12 +140,17 @@ impl ReinforcementLearning {
     fn create_trajectory(&mut self, model: &mut Model, initial_state: LocalState) -> Vec<Step> {
         let mut state = initial_state;
         let mut steps = Vec::new();
+        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; 32]);
 
         // create trajectory
         loop {
             // track gradients for the backward pass later
             let input = Self::build_input_tensor(&state, &self.device);
             let logits = model.forward(input);
+
+            let can_build_tensor =
+                self.buildset_to_tensor(data::get_build_options(&state.has_built));
+            let logits = can_build_tensor.choose(logits, zero_logits.clone());
 
             // Get probabilities for sampling
             let probabilities = logits.softmax();
@@ -154,6 +165,7 @@ impl ReinforcementLearning {
             let next_state = next_state.unwrap();
 
             let reward = self.reward_model.calculate(&state, &next_state);
+            assert!(reward >= 0.0);
             steps.push(Step {
                 state,
                 action: chosen_index,
@@ -212,6 +224,14 @@ impl ReinforcementLearning {
             Self::convert_to_float(state.has_built.contains(AdvancedVehicleLab)),
             Self::convert_to_float(state.has_built.contains(ConstructionVehicleT2)),
         ])
+    }
+
+    fn buildset_to_tensor(&self, build_set: BuildSet) -> Tensor<Rank1<32>, bool, Cpu> {
+        let mut array = [false; 32];
+        for idx in build_set.ids() {
+            array[idx as usize] = true;
+        }
+        self.device.tensor(array)
     }
 }
 

@@ -1,6 +1,6 @@
+use crate::data;
 use crate::data::{BuildOptionId, BuildSet};
 use crate::searcher::Searcher;
-use crate::data;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -96,7 +96,7 @@ impl LocalState {
         if self.conversion_drain <= self.energy_generation {
             self.metal_generation + self.conversion_result
         } else {
-            let fraction_of_conversion_used = self.conversion_drain / self.energy_generation;
+            let fraction_of_conversion_used = self.energy_generation / self.conversion_drain;
             self.metal_generation + self.conversion_result * fraction_of_conversion_used
         }
     }
@@ -129,6 +129,7 @@ impl LocalState {
 
         let final_build_time =
             f32::max(conversion_time, build_power_time).max(energy_generation_time);
+        assert!(final_build_time >= 0.0);
 
         if self.time + final_build_time > maximum_time {
             return None;
@@ -149,11 +150,16 @@ impl LocalState {
         };
         assert!(final_conversion_time >= 0.0);
 
-        let final_metal_gained = f32::ceil(final_conversion_time * self.conversion_result);
+        let final_metal_gained = f32::ceil(
+            final_conversion_time * self.conversion_result
+                + final_build_time * self.metal_generation,
+        );
+        let new_metal_quantity = final_metal_gained - metal_shortage;
+        assert!(new_metal_quantity >= 0.0);
 
         Some(LocalState {
             time: self.time + final_build_time,
-            metal: final_metal_gained - metal_shortage,
+            metal: new_metal_quantity,
             energy: f32::clamp(energy_surplus, 0.0, self.energy_storage as f32),
             energy_generation: self.energy_generation + option.energy_generation as f32,
             metal_generation: self.metal_generation + option.metal_generation as f32,

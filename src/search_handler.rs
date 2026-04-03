@@ -71,16 +71,16 @@ fn progress_updater(progress_state: Arc<SharedState>) {
     use std::time::Duration;
 
     while !progress_state.done.load(Ordering::Relaxed) {
-        let best_time = progress_state.best_score.load(Ordering::Relaxed);
+        let best_score = progress_state.best_score.load(Ordering::Relaxed);
         let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
         let skipped = progress_state.sequences_skipped.load(Ordering::Relaxed);
 
         print!(
-            "\rProgress: best_time: {}, checked: {}, skipped: {}",
-            if best_time == u32::MAX {
+            "\rProgress: best score: {}, checked: {}, skipped: {}",
+            if best_score == u32::MAX {
                 "n/a".to_string()
             } else {
-                best_time.to_string()
+                best_score.to_string()
             },
             checked,
             skipped,

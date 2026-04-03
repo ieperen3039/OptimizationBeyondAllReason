@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 dfdx = { version = "0.13.0", features = ["numpy"] }
+simple-error = "0.3.2"

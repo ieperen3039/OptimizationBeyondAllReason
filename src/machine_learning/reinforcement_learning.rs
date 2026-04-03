@@ -1,3 +1,4 @@
+use crate::data;
 use crate::data::BuildOptionId;
 use crate::data::BuildOptionId::{
     AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
@@ -8,16 +9,19 @@ use crate::policy::Policy;
 use crate::random::MyRandom;
 use crate::search_handler::{LocalState, SearchResult, SharedState};
 use crate::searcher::Searcher;
-use dfdx::nn::{BuildOnDevice, DeviceBuildExt, Module, ResetParams, SaveToNpz, ZeroGrads};
+use dfdx::nn::{
+    BuildOnDevice, DeviceBuildExt, LoadFromNpz, Module, ResetParams, SaveToNpz, ZeroGrads,
+};
 use dfdx::optim::{Optimizer, SgdConfig};
 use dfdx::prelude::{Linear, ReLU};
 use dfdx::tensor::{Cpu, Tensor, TensorFrom, Trace};
 use dfdx::tensor_ops::{Backward, SelectTo};
 use dfdx::{optim::Sgd, shapes::Rank1};
+use simple_error::SimpleError;
 use std::ops::Index;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use crate::data;
 
 pub struct ReinforcementLearning {
     device: Cpu,
@@ -52,7 +56,12 @@ struct Step {
 }
 
 impl ReinforcementLearning {
-    pub fn new(num_trajectories: u32, random_seed: u32, max_game_time: f32, reward_model: Box<dyn Reward>) -> Self {
+    pub fn new(
+        num_trajectories: u32,
+        random_seed: u32,
+        max_game_time: f32,
+        reward_model: Box<dyn Reward>,
+    ) -> Self {
         let device = Cpu::default();
         Self {
             device,
@@ -61,6 +70,14 @@ impl ReinforcementLearning {
             max_game_time,
             rng: MyRandom::new_from_u32(random_seed),
         }
+    }
+
+    pub fn load(device: &Cpu, path: &Path) -> Result<Model, SimpleError> {
+        let mut model = device.build_module::<Layers, f32>();
+        model
+            .load(path)
+            .map_err(|e| SimpleError::new(e.to_string()))?;
+        Ok(model)
     }
 
     pub fn get_device(&self) -> Cpu {
@@ -216,15 +233,27 @@ impl Searcher for ReinforcementLearning {
             },
         );
 
-        let mut best_time = f32::MAX;
+        let mut best_score = 0.0;
 
         for _ in 0..self.num_trajectories {
             let steps = self.create_trajectory(&mut model, initial_state.clone());
-            let sequence_time = steps.last().map(|s| s.state.time).unwrap_or(f32::MAX);
 
-            if sequence_time < best_time {
-                best_time = sequence_time;
-                shared_state.best_score.store(f32::ceil(sequence_time) as u32, Ordering::Relaxed);
+            if steps.is_empty() {
+                shared_state
+                    .sequences_skipped
+                    .fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+
+            let score = self
+                .reward_model
+                .calculate(&initial_state, &steps.last().unwrap().state);
+
+            if score > best_score {
+                best_score = score;
+                shared_state
+                    .best_score
+                    .store(f32::ceil(score) as u32, Ordering::Relaxed);
             }
 
             self.evaluate(&mut model, &mut optimizer, steps);

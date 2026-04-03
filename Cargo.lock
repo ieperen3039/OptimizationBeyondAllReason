@@ -19,6 +19,7 @@ name = "build_order_simulator"
 version = "0.1.0"
 dependencies = [
  "dfdx",
+ "simple-error",
 ]
 
 [[package]]
@@ -394,6 +395,12 @@ name = "seq-macro"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
+
+[[package]]
+name = "simple-error"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69da7c8ef9e55986dcaa55dd095bbf7d321e80cc91644f25ce26a83dbe9e7f14"
 
 [[package]]
 name = "syn"

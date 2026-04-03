@@ -21,7 +21,7 @@ pub struct LocalState {
 
 pub struct SharedState {
     pub done: AtomicBool,
-    pub best_time: AtomicU32,
+    pub best_score: AtomicU32,
     pub sequences_checked: AtomicU32,
     pub sequences_skipped: AtomicU32,
 }
@@ -51,7 +51,7 @@ impl LocalState {
 pub fn search(searcher: &mut dyn Searcher, initial_state: LocalState) -> SearchResult {
     let shared_state = Arc::new(SharedState {
         done: AtomicBool::new(false),
-        best_time: AtomicU32::new(u32::MAX),
+        best_score: AtomicU32::new(u32::MAX),
         sequences_checked: AtomicU32::default(),
         sequences_skipped: AtomicU32::default(),
     });
@@ -71,7 +71,7 @@ fn progress_updater(progress_state: Arc<SharedState>) {
     use std::time::Duration;
 
     while !progress_state.done.load(Ordering::Relaxed) {
-        let best_time = progress_state.best_time.load(Ordering::Relaxed);
+        let best_time = progress_state.best_score.load(Ordering::Relaxed);
         let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
         let skipped = progress_state.sequences_skipped.load(Ordering::Relaxed);
 

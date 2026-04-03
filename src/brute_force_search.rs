@@ -87,7 +87,7 @@ impl BruteForceSearcher {
 
         if best.time < self.best_time {
             let best_time_u32 = f32::ceil(best.time) as u32;
-            s.best_time.store(best_time_u32, Ordering::Relaxed)
+            s.best_score.store(best_time_u32, Ordering::Relaxed)
         }
 
         best

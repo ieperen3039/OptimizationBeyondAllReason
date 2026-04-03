@@ -17,6 +17,7 @@ use dfdx::{optim::Sgd, shapes::Rank1};
 use std::ops::Index;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use crate::data;
 
 pub struct ReinforcementLearning {
     device: Cpu,
@@ -223,7 +224,7 @@ impl Searcher for ReinforcementLearning {
 
             if sequence_time < best_time {
                 best_time = sequence_time;
-                shared_state.best_time.store(f32::ceil(sequence_time) as u32, Ordering::Relaxed);
+                shared_state.best_score.store(f32::ceil(sequence_time) as u32, Ordering::Relaxed);
             }
 
             self.evaluate(&mut model, &mut optimizer, steps);
@@ -241,13 +242,15 @@ impl Searcher for ReinforcementLearning {
 
         let mut state = initial_state;
         let mut sequence = Vec::new();
+        let mut built = [0; data::NUM_BUILD_OPTIONS];
         loop {
-            let build_choice = policy.get_next(&state, &sequence);
+            let build_choice = policy.get_next(&state, &built);
             let next_state = state.compute_next(build_choice, self.max_game_time);
             if next_state.is_none() {
                 break;
             }
             sequence.push(build_choice);
+            built[build_choice as usize] += 1;
             state = next_state.unwrap();
         }
 

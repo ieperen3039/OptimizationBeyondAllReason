@@ -7,6 +7,7 @@ use crate::random::MyRandom;
 use crate::search_handler::LocalState;
 use dfdx::nn::Module;
 use dfdx::tensor::{AsArray, Cpu};
+use crate::data;
 
 pub struct DeterministicReinforcementPolicy {
     model: rl::Model,
@@ -31,12 +32,13 @@ impl DeterministicReinforcementPolicy {
 }
 
 impl Policy for DeterministicReinforcementPolicy {
-    fn get_next(&self, state: &LocalState, _sequence: &Vec<BuildOptionId>) -> BuildOptionId {
+    fn get_next(&self, state: &LocalState, _built: &[usize; data::NUM_BUILD_OPTIONS]) -> BuildOptionId {
         let input = ReinforcementLearning::build_input_tensor(state, &self.device);
         let logits = self.model.forward(input);
         // Get probabilities for sampling
         let probabilities = logits.softmax().array();
         let (index, _value) = probabilities.iter().enumerate().max_by(|(_, v1), (_, v2)| f32::total_cmp(v1, v2)).unwrap();
+        println!("Picking {index} from {probabilities:?}");
         assert!(index <= (u8::MAX as usize));
 
         BuildOptionId::from(index as u8)

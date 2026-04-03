@@ -3,6 +3,8 @@ use std::mem;
 use crate::data;
 use crate::data::BuildOptionId::{ConstructionVehicleT1, ConstructionVehicleT2};
 
+pub const NUM_BUILD_OPTIONS : usize = 13;
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum BuildOptionId {
@@ -23,6 +25,7 @@ pub enum BuildOptionId {
 
 impl From<u8> for BuildOptionId {
     fn from(value: u8) -> Self {
+        assert!((value as usize) < NUM_BUILD_OPTIONS);
         unsafe { mem::transmute(value) }
     }
 }
@@ -33,7 +36,7 @@ impl BuildOptionId {
     }
 }
 
-pub const BUILD_OPTIONS: [BuildOption; 13] = [
+pub const BUILD_OPTIONS: [BuildOption; NUM_BUILD_OPTIONS] = [
     BuildOption {
         name: "Wind",
         cost_metal: 43,

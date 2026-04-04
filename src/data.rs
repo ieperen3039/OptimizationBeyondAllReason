@@ -49,7 +49,7 @@ pub const BUILD_OPTIONS: [BuildOption; NUM_BUILD_OPTIONS] = [
         cost_metal: 43,
         cost_energy: 175,
         cost_bp: 1680,
-        energy_generation: 10,
+        energy_generation: 12,
         metal_generation: 0,
         build_power: 0,
         conversion_drain: 0.0,

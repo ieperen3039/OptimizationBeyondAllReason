@@ -32,7 +32,7 @@ impl BruteForceSearcher {
         if remaining_depth == 0 {
             s.sequences_checked.fetch_add(1, Ordering::Relaxed);
             return SearchResult {
-                time: l.time,
+                score: l.time,
                 sequence: sequence.clone(),
             };
         }
@@ -44,7 +44,7 @@ impl BruteForceSearcher {
                 BuildSet::of(self.target)
             } else {
                 return SearchResult {
-                    time: f32::MAX,
+                    score: f32::MAX,
                     sequence: Vec::new(),
                 };
             }
@@ -63,7 +63,7 @@ impl BruteForceSearcher {
         };
 
         let mut best = SearchResult {
-            time: f32::MAX,
+            score: f32::MAX,
             sequence: Vec::new(),
         };
 
@@ -80,13 +80,13 @@ impl BruteForceSearcher {
             let candidate = self.search_inner(sequence, remaining_depth - 1, new_local, s);
             sequence.pop();
 
-            if candidate.time < best.time {
+            if candidate.score < best.score {
                 best = candidate;
             }
         }
 
-        if best.time < self.best_time {
-            let best_time_u32 = f32::ceil(best.time) as u32;
+        if best.score < self.best_time {
+            let best_time_u32 = f32::ceil(best.score) as u32;
             s.best_score.store(best_time_u32, Ordering::Relaxed)
         }
 
@@ -102,7 +102,7 @@ impl Searcher for BruteForceSearcher {
         initial_state: LocalState,
     ) -> SearchResult {
         let mut best = SearchResult {
-            time: f32::MAX,
+            score: f32::MAX,
             sequence: Vec::new(),
         };
 
@@ -118,7 +118,7 @@ impl Searcher for BruteForceSearcher {
 
             println!("\nBest {} sequence: {:?}", search_depth, candidate.sequence);
 
-            if candidate.time < best.time {
+            if candidate.score < best.score {
                 best = candidate;
             }
         }

@@ -27,7 +27,7 @@ pub struct SharedState {
 }
 
 pub struct SearchResult {
-    pub time: f32,
+    pub score: f32,
     pub sequence: Vec<BuildOptionId>,
 }
 

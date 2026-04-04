@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::machine_learning::reinforcement_learning::ReinforcementLearning;
-use crate::machine_learning::reward::{CompoundReward, ResourceGenerationReward, TierReward};
+use crate::machine_learning::reward::{MetalGenerationReward, ResourceGenerationReward, TierReward};
 use crate::search_handler::LocalState;
 
 mod data;
@@ -29,11 +29,11 @@ fn main() {
     };
 
     // let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
-    let mut searcher = ReinforcementLearning::new(1, 0x3039, 6000.0, Box::from(CompoundReward));
+    let mut searcher = ReinforcementLearning::new(20000, 0x3039, 5.0 * 600.0, Box::from(ResourceGenerationReward));
 
     let result = search_handler::search(&mut searcher, initial_state);
 
     println!();
-    println!("Best sequence: {:?} in {} seconds", result.sequence.iter().map(|i| i.data()), result.time);
+    println!("Best sequence: {:?} with a score of {}", result.sequence.iter().map(|i| i.data()), result.score);
 }
 

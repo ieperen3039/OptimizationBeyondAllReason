@@ -1,7 +1,4 @@
 use crate::data;
-use crate::data::BuildOptionId::{
-    AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
-};
 use crate::data::{BuildOptionId, BuildSet};
 use crate::machine_learning::reinforcement_policy::DeterministicReinforcementPolicy;
 use crate::machine_learning::reward::Reward;
@@ -12,7 +9,7 @@ use crate::searcher::Searcher;
 use dfdx::nn::{
     BuildOnDevice, DeviceBuildExt, LoadFromNpz, Module, ResetParams, SaveToNpz, ZeroGrads,
 };
-use dfdx::optim::{Optimizer, SgdConfig};
+use dfdx::optim::{Optimizer, SgdConfig, WeightDecay};
 use dfdx::prelude::{Linear, ReLU};
 use dfdx::tensor::{Cpu, Tensor, TensorFrom, Trace};
 use dfdx::tensor_ops::{Backward, ChooseFrom, SelectTo};
@@ -22,6 +19,7 @@ use std::ops::Index;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use crate::data::BuildOptionId::*;
 
 pub struct ReinforcementLearning {
     device: Cpu,
@@ -31,10 +29,10 @@ pub struct ReinforcementLearning {
     pub max_game_time: f32,
 }
 
-const INPUT_SIZE: usize = 17;
-const LAYER_0_SIZE: usize = 128;
-const LAYER_1_SIZE: usize = 64;
-const OUTPUT_SIZE: usize = 32;
+const INPUT_SIZE: usize = 16;
+const LAYER_0_SIZE: usize = 32;
+const LAYER_1_SIZE: usize = 32;
+const OUTPUT_SIZE: usize = data::NUM_BUILD_OPTIONS;
 
 pub type InputTensor = Tensor<Rank1<INPUT_SIZE>, f32, Cpu>;
 pub type OutputTensor = Tensor<Rank1<OUTPUT_SIZE>, f32, Cpu>;
@@ -42,9 +40,7 @@ pub type OutputTensor = Tensor<Rank1<OUTPUT_SIZE>, f32, Cpu>;
 type Layers = (
     Linear<INPUT_SIZE, LAYER_0_SIZE>,
     ReLU,
-    Linear<LAYER_0_SIZE, LAYER_1_SIZE>,
-    ReLU,
-    Linear<LAYER_1_SIZE, OUTPUT_SIZE>,
+    Linear<LAYER_0_SIZE, OUTPUT_SIZE>,
 );
 
 pub type Model = <Layers as BuildOnDevice<Cpu, f32>>::Built;
@@ -91,9 +87,9 @@ impl ReinforcementLearning {
         let mut optimizer = Sgd::new(
             &model,
             SgdConfig {
-                lr: 1e-3,
+                lr: 1e-5,
                 momentum: None,
-                weight_decay: None,
+                weight_decay: Some(WeightDecay::Decoupled(1e-3)),
             },
         );
 
@@ -119,11 +115,12 @@ impl ReinforcementLearning {
             step.reward = running_return;
         }
 
-        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; 32]);
+        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; OUTPUT_SIZE]);
+        let mut gradients = model.alloc_grads();
 
         for step in steps {
             let input = Self::build_input_tensor(&step.state, &self.device);
-            let logits = model.forward(input.traced(model.alloc_grads()));
+            let logits = model.forward(input.traced(gradients));
 
             let can_build_tensor =
                 self.buildset_to_tensor(data::get_build_options(&step.state.has_built));
@@ -132,15 +129,15 @@ impl ReinforcementLearning {
             let log_prob = logits.log_softmax().select(self.device.tensor(step.action));
 
             let loss = log_prob * (-step.reward);
-            let gradients = loss.backward();
-            optimizer.update(&mut model, &gradients).unwrap();
+            gradients = loss.backward();
         }
+        optimizer.update(&mut model, &gradients).unwrap();
     }
 
     fn create_trajectory(&mut self, model: &mut Model, initial_state: LocalState) -> Vec<Step> {
         let mut state = initial_state;
         let mut steps = Vec::new();
-        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; 32]);
+        let zero_logits: OutputTensor = self.device.tensor([-1.0e9; OUTPUT_SIZE]);
 
         // create trajectory
         loop {
@@ -148,8 +145,8 @@ impl ReinforcementLearning {
             let input = Self::build_input_tensor(&state, &self.device);
             let logits = model.forward(input);
 
-            let can_build_tensor =
-                self.buildset_to_tensor(data::get_build_options(&state.has_built));
+            let build_options = data::get_build_options(&state.has_built);
+            let can_build_tensor = self.buildset_to_tensor(build_options.clone());
             let logits = can_build_tensor.choose(logits, zero_logits.clone());
 
             // Get probabilities for sampling
@@ -157,6 +154,11 @@ impl ReinforcementLearning {
             let chosen_index = Self::select(probabilities, self.rng.next_f32());
 
             let next_build = BuildOptionId::from(chosen_index as u8);
+            if !build_options.contains(next_build) {
+                // disqualify this trajectory; should rarely happen
+                return Vec::new()
+            }
+
             let next_state = state.compute_next(next_build, self.max_game_time);
 
             if next_state.is_none() {
@@ -195,28 +197,31 @@ impl ReinforcementLearning {
 
     /// Build input tensor based on state
     pub fn build_input_tensor(state: &LocalState, device: &Cpu) -> InputTensor {
-        let fraction_of_energy_converted = state.energy_generation / state.conversion_drain;
+        let fraction_of_energy_converted = if state.conversion_drain <= 0.0 {
+            0.0
+        } else {
+            state.energy_generation / state.conversion_drain
+        };
         let fraction_of_storage_generated_per_second =
-            (state.energy_storage as f32) / state.energy_generation;
+            state.energy_generation / (state.energy_storage as f32);
         let metal_per_build_power = state.metal_generation / state.build_power as f32;
         let energy_per_build_power = state.energy_generation / state.build_power as f32;
 
         device.tensor([
             // raw state
-            state.time,   // measured in seconds, can go as high as 1_800
-            state.metal,  // can go as high as 1_000_000
-            state.energy, // can go as high as 10_000_000
-            state.energy_generation,
-            state.metal_generation,
-            state.build_power as f32, // increments in steps of 200
-            state.conversion_drain,
-            state.conversion_result,
-            state.energy_storage as f32,
+            state.time / 6000.0,
+            f32::ln(state.metal + 1.0) / 14.0,
+            f32::ln(state.energy + 1.0) / 15.0,
+            f32::ln(state.energy_generation + 1.0) / 20.0,
+            f32::ln(state.metal_generation + 1.0),
+            state.build_power as f32 / 200.0, // increments in steps of 200
+            f32::ln(state.conversion_drain + 1.0) / 20.0,
+            f32::ln(state.energy_storage as f32 + 1.0) / 15.0,
             // relational values
             fraction_of_energy_converted,
             fraction_of_storage_generated_per_second,
-            metal_per_build_power,
-            energy_per_build_power,
+            f32::ln(metal_per_build_power + 1.0) / 5.0,
+            f32::ln(energy_per_build_power + 1.0) / 5.0,
             // build options
             Self::convert_to_float(state.has_built.contains(VehicleLab)),
             Self::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
@@ -225,9 +230,12 @@ impl ReinforcementLearning {
         ])
     }
 
-    fn buildset_to_tensor(&self, build_set: BuildSet) -> Tensor<Rank1<32>, bool, Cpu> {
-        let mut array = [false; 32];
+    fn buildset_to_tensor(&self, build_set: BuildSet) -> Tensor<Rank1<OUTPUT_SIZE>, bool, Cpu> {
+        let mut array = [false; OUTPUT_SIZE];
         for idx in build_set.ids() {
+            if idx as usize >= OUTPUT_SIZE {
+                break;
+            }
             array[idx as usize] = true;
         }
         self.device.tensor(array)
@@ -246,13 +254,11 @@ impl Searcher for ReinforcementLearning {
         let mut optimizer = Sgd::new(
             &model,
             SgdConfig {
-                lr: 1e-3,
+                lr: 0.001,
                 momentum: None,
                 weight_decay: None,
             },
         );
-
-        let mut best_score = 0.0;
 
         for _ in 0..self.num_trajectories {
             let steps = self.create_trajectory(&mut model, initial_state.clone());
@@ -268,12 +274,9 @@ impl Searcher for ReinforcementLearning {
                 .reward_model
                 .calculate(&initial_state, &steps.last().unwrap().state);
 
-            if score > best_score {
-                best_score = score;
-                shared_state
-                    .best_score
-                    .store(f32::ceil(score) as u32, Ordering::Relaxed);
-            }
+            shared_state
+                .best_score
+                .store(f32::ceil(score) as u32, Ordering::Relaxed);
 
             self.evaluate(&mut model, &mut optimizer, steps);
             shared_state
@@ -288,7 +291,7 @@ impl Searcher for ReinforcementLearning {
 
         let policy = DeterministicReinforcementPolicy::from_model(model);
 
-        let mut state = initial_state;
+        let mut state = initial_state.clone();
         let mut sequence = Vec::new();
         let mut built = [0; data::NUM_BUILD_OPTIONS];
         loop {
@@ -302,9 +305,8 @@ impl Searcher for ReinforcementLearning {
             state = next_state.unwrap();
         }
 
-        SearchResult {
-            time: state.time,
-            sequence,
-        }
+        let score = self.reward_model.calculate(&initial_state, &state);
+
+        SearchResult { score, sequence }
     }
 }

@@ -19,15 +19,15 @@ use std::ops::{Add, Index};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use log::log;
 use crate::data::BuildOptionId::*;
+use crate::machine_learning::common;
 
 pub struct ReinforcementLearning {
     device: Cpu,
     reward_model: Box<dyn Reward>,
     num_trajectories: u32,
     rng: MyRandom,
-    pub max_game_time: f32,
+    max_game_time: f32,
 }
 
 const INPUT_SIZE: usize = 16;
@@ -145,7 +145,6 @@ impl ReinforcementLearning {
             // track gradients for the backward pass later
             let input = Self::build_input_tensor(&state, &self.device);
             let logits = model.forward(input);
-            let logits = logits.add(self.device.tensor([1.0; OUTPUT_SIZE]));
 
             let build_options = data::get_build_options(&state.has_built);
             let can_build_tensor = self.buildset_to_tensor(build_options.clone());
@@ -193,10 +192,6 @@ impl ReinforcementLearning {
         unreachable!("probabilities should sum to 1.0");
     }
 
-    fn convert_to_float(has_constructor_t2: bool) -> f32 {
-        if has_constructor_t2 { 1.0 } else { 0.0 }
-    }
-
     /// Build input tensor based on state
     pub fn build_input_tensor(state: &LocalState, device: &Cpu) -> InputTensor {
         let fraction_of_energy_converted = if state.conversion_drain <= 0.0 {
@@ -225,10 +220,10 @@ impl ReinforcementLearning {
             f32::ln(energy_per_build_power + 1.0) / 5.0,
             1.0, // dummy
             // build options
-            Self::convert_to_float(state.has_built.contains(VehicleLab)),
-            Self::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
-            Self::convert_to_float(state.has_built.contains(AdvancedVehicleLab)),
-            Self::convert_to_float(state.has_built.contains(ConstructionVehicleT2)),
+            common::convert_to_float(state.has_built.contains(VehicleLab)),
+            common::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
+            common::convert_to_float(state.has_built.contains(AdvancedVehicleLab)),
+            common::convert_to_float(state.has_built.contains(ConstructionVehicleT2)),
         ])
     }
 

@@ -33,4 +33,13 @@ impl MyRandom {
         let x = self.next_u32() >> 8; // keep top 24 bits
         (x as f32) * (1.0 / 16_777_216.0) // 2^24
     }
+
+    pub fn random_index(&self, num_values: usize) -> usize {
+        let range = num_values as f32;
+        f32::floor(range * self.next_f32()) as usize
+    }
+
+    pub fn random_between(&self, start: usize, end: usize) -> usize {
+        start + self.random_index(end - start + 1)
+    }
 }

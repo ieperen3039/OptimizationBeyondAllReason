@@ -8,6 +8,7 @@ pub const NUM_BUILD_OPTIONS : usize = 13;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum BuildOptionId {
+    Invalid,
     WindTurbine,
     SolarCollector,
     AdvancedSolarCollector,

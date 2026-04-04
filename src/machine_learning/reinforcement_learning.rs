@@ -9,16 +9,17 @@ use crate::searcher::Searcher;
 use dfdx::nn::{
     BuildOnDevice, DeviceBuildExt, LoadFromNpz, Module, ResetParams, SaveToNpz, ZeroGrads,
 };
-use dfdx::optim::{Optimizer, SgdConfig, WeightDecay};
+use dfdx::optim::{Momentum, Optimizer, SgdConfig, WeightDecay};
 use dfdx::prelude::{Linear, ReLU};
 use dfdx::tensor::{Cpu, Tensor, TensorFrom, Trace};
 use dfdx::tensor_ops::{Backward, ChooseFrom, SelectTo};
 use dfdx::{optim::Sgd, shapes::Rank1};
 use simple_error::SimpleError;
-use std::ops::Index;
+use std::ops::{Add, Index};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use log::log;
 use crate::data::BuildOptionId::*;
 
 pub struct ReinforcementLearning {
@@ -144,6 +145,7 @@ impl ReinforcementLearning {
             // track gradients for the backward pass later
             let input = Self::build_input_tensor(&state, &self.device);
             let logits = model.forward(input);
+            let logits = logits.add(self.device.tensor([1.0; OUTPUT_SIZE]));
 
             let build_options = data::get_build_options(&state.has_built);
             let can_build_tensor = self.buildset_to_tensor(build_options.clone());
@@ -209,12 +211,11 @@ impl ReinforcementLearning {
 
         device.tensor([
             // raw state
-            state.time / 6000.0,
             f32::ln(state.metal + 1.0) / 14.0,
             f32::ln(state.energy + 1.0) / 15.0,
             f32::ln(state.energy_generation + 1.0) / 20.0,
             f32::ln(state.metal_generation + 1.0),
-            state.build_power as f32 / 200.0, // increments in steps of 200
+            state.build_power as f32 / 20000.0, // increments in steps of 200
             f32::ln(state.conversion_drain + 1.0) / 20.0,
             f32::ln(state.energy_storage as f32 + 1.0) / 15.0,
             // relational values
@@ -222,6 +223,7 @@ impl ReinforcementLearning {
             fraction_of_storage_generated_per_second,
             f32::ln(metal_per_build_power + 1.0) / 5.0,
             f32::ln(energy_per_build_power + 1.0) / 5.0,
+            1.0, // dummy
             // build options
             Self::convert_to_float(state.has_built.contains(VehicleLab)),
             Self::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
@@ -254,9 +256,9 @@ impl Searcher for ReinforcementLearning {
         let mut optimizer = Sgd::new(
             &model,
             SgdConfig {
-                lr: 0.001,
+                lr: 1e-3,
                 momentum: None,
-                weight_decay: None,
+                weight_decay: Some(WeightDecay::Decoupled(1e-2)),
             },
         );
 

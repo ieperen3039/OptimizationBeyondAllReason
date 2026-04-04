@@ -29,7 +29,7 @@ fn main() {
     };
 
     // let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
-    let mut searcher = ReinforcementLearning::new(20000, 0x3039, 5.0 * 600.0, Box::from(ResourceGenerationReward));
+    let mut searcher = ReinforcementLearning::new(2000, 0x3039, 30.0 * 600.0, Box::from(MetalGenerationReward));
 
     let result = search_handler::search(&mut searcher, initial_state);
 

@@ -1,16 +1,10 @@
-use dfdx::prelude::Softmax;
 use crate::data;
-use crate::data::{BuildOptionId, BuildSet};
-use crate::data::BuildOptionId::{
-    AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
-};
-use crate::machine_learning::common;
-use crate::machine_learning::reward::Reward;
+use crate::data::{BuildOptionId, BuildSet, NUM_BUILD_OPTIONS};
 use crate::random::MyRandom;
 use crate::search_handler::LocalState;
 
 const INPUT_SIZE: usize = 16;
-const OUTPUT_SIZE: usize = data::NUM_BUILD_OPTIONS;
+const OUTPUT_SIZE: usize = NUM_BUILD_OPTIONS;
 const DISABLED_GENE_PROBABILITY: f32 = 0.75;
 const MINIMUM_CONNECTION_WEIGHT: f32 = 0.75;
 
@@ -22,6 +16,7 @@ pub struct NeatNetwork {
     /// sorted on input node
     connections: Vec<Connection>,
     num_hidden_nodes: usize,
+    specie: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +33,24 @@ const WEIGHT_PERTUBATION_MAX: f32 = 0.2;
 const WEIGHT_CUT_PROBABILITY: f32 = 0.01;
 
 impl NeatNetwork {
+    pub fn new() -> Self {
+        NeatNetwork {
+            connections: Vec::new(),
+            num_hidden_nodes: 0,
+            specie: 0,
+        }
+    }
+
+    pub fn run(&self, state: &LocalState, input: &InputTensor, max_game_time: f32) -> (BuildOptionId, Option<LocalState>) {
+        let logits = self.forward(&input);
+
+        let build_options = data::get_build_options(&state.has_built);
+        let next_build = NeatNetwork::get_max(logits, build_options);
+        let next_state = state.compute_next(next_build, max_game_time);
+        (next_build, next_state)
+    }
+
+
     pub fn forward(&self, inputs: &InputTensor) -> OutputTensor {
         let mut node_values = Vec::with_capacity(INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE);
         node_values[..INPUT_SIZE].copy_from_slice(inputs);
@@ -182,5 +195,18 @@ impl NeatNetwork {
 
     fn sigmoid(value: f32) -> f32 {
         1.0 / (1.0 + f32::exp(-value))
+    }
+
+    fn get_max(outputs: OutputTensor, allowed_options: BuildSet) -> BuildOptionId {
+        let mut max_value = f32::MIN;
+        let mut best_id = BuildOptionId::Invalid;
+        for id in allowed_options.ids() {
+            let value = outputs[id as usize];
+            if value > max_value {
+                best_id = id;
+                max_value = value;
+            }
+        }
+        best_id
     }
 }

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use crate::data;
 use crate::data::{BuildOptionId, BuildSet};
 use crate::searcher::Searcher;
@@ -21,9 +22,7 @@ pub struct LocalState {
 
 pub struct SharedState {
     pub done: AtomicBool,
-    pub best_score: AtomicU32,
-    pub sequences_checked: AtomicU32,
-    pub sequences_skipped: AtomicU32,
+    pub state: Arc<dyn Display + Send + Sync>
 }
 
 pub struct SearchResult {
@@ -51,15 +50,13 @@ impl LocalState {
 pub fn search(searcher: &mut dyn Searcher, initial_state: LocalState) -> SearchResult {
     let shared_state = Arc::new(SharedState {
         done: AtomicBool::new(false),
-        best_score: AtomicU32::new(u32::MAX),
-        sequences_checked: AtomicU32::default(),
-        sequences_skipped: AtomicU32::default(),
+        state: searcher.new_progress_updater()
     });
 
     let progress_state = Arc::clone(&shared_state);
     let progress_handle = thread::spawn(move || progress_updater(progress_state));
 
-    let result = searcher.search(&shared_state, initial_state);
+    let result = searcher.search(initial_state);
     let best = result;
 
     shared_state.done.store(true, Ordering::Relaxed);
@@ -71,22 +68,8 @@ fn progress_updater(progress_state: Arc<SharedState>) {
     use std::time::Duration;
 
     while !progress_state.done.load(Ordering::Relaxed) {
-        let best_score = progress_state.best_score.load(Ordering::Relaxed);
-        let checked = progress_state.sequences_checked.load(Ordering::Relaxed);
-        let skipped = progress_state.sequences_skipped.load(Ordering::Relaxed);
-
-        print!(
-            "\rProgress: best score: {}, checked: {}, skipped: {}",
-            if best_score == u32::MAX {
-                "n/a".to_string()
-            } else {
-                best_score.to_string()
-            },
-            checked,
-            skipped,
-        );
+        print!("\rProgress: {:<60}", progress_state.state);
         let _ = std::io::Write::flush(&mut std::io::stdout());
-
         thread::sleep(Duration::from_millis(200));
     }
 }

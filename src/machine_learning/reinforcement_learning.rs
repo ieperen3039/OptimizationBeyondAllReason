@@ -1,26 +1,27 @@
 use crate::data;
+use crate::data::BuildOptionId::*;
 use crate::data::{BuildOptionId, BuildSet};
+use crate::machine_learning::common;
 use crate::machine_learning::reinforcement_policy::DeterministicReinforcementPolicy;
 use crate::machine_learning::reward::Reward;
 use crate::policy::Policy;
 use crate::random::MyRandom;
-use crate::search_handler::{LocalState, SearchResult, SharedState};
+use crate::search_handler::{LocalState, SearchResult};
 use crate::searcher::Searcher;
 use dfdx::nn::{
     BuildOnDevice, DeviceBuildExt, LoadFromNpz, Module, ResetParams, SaveToNpz, ZeroGrads,
 };
-use dfdx::optim::{Momentum, Optimizer, SgdConfig, WeightDecay};
-use dfdx::prelude::{Linear, ReLU};
+use dfdx::optim::{Optimizer, SgdConfig, WeightDecay};
+use dfdx::prelude::{Linear, Sigmoid};
 use dfdx::tensor::{Cpu, Tensor, TensorFrom, Trace};
 use dfdx::tensor_ops::{Backward, ChooseFrom, SelectTo};
 use dfdx::{optim::Sgd, shapes::Rank1};
 use simple_error::SimpleError;
-use std::ops::{Add, Index};
+use std::fmt::{Display, Formatter};
+use std::ops::Index;
 use std::path::Path;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use crate::data::BuildOptionId::*;
-use crate::machine_learning::common;
 
 pub struct ReinforcementLearning {
     device: Cpu,
@@ -28,6 +29,12 @@ pub struct ReinforcementLearning {
     num_trajectories: u32,
     rng: MyRandom,
     max_game_time: f32,
+    state: Arc<ReinforcementLearningState>,
+}
+
+struct ReinforcementLearningState {
+    pub last_score: AtomicU32,
+    pub current_trajectory: AtomicU32,
 }
 
 const INPUT_SIZE: usize = 16;
@@ -40,7 +47,7 @@ pub type OutputTensor = Tensor<Rank1<OUTPUT_SIZE>, f32, Cpu>;
 
 type Layers = (
     Linear<INPUT_SIZE, LAYER_0_SIZE>,
-    ReLU,
+    Sigmoid,
     Linear<LAYER_0_SIZE, OUTPUT_SIZE>,
 );
 
@@ -66,6 +73,10 @@ impl ReinforcementLearning {
             num_trajectories,
             max_game_time,
             rng: MyRandom::new_from_u32(random_seed),
+            state: Arc::new(ReinforcementLearningState {
+                last_score: AtomicU32::default(),
+                current_trajectory: AtomicU32::default(),
+            }),
         }
     }
 
@@ -94,8 +105,14 @@ impl ReinforcementLearning {
             },
         );
 
-        for _ in 0..self.num_trajectories {
+        for t in 0..self.num_trajectories {
+            self.state.current_trajectory.store(t, Ordering::Relaxed);
+
             let steps = self.create_trajectory(&mut model, LocalState::initial());
+            if steps.is_empty() {
+                continue;
+            }
+
             self.evaluate(&mut model, &mut optimizer, steps);
         }
 
@@ -115,6 +132,10 @@ impl ReinforcementLearning {
             running_return = step.reward + (reward_gamma * running_return);
             step.reward = running_return;
         }
+
+        self.state
+            .last_score
+            .store(f32::floor(running_return) as u32, Ordering::Relaxed);
 
         let zero_logits: OutputTensor = self.device.tensor([-1.0e9; OUTPUT_SIZE]);
         let mut gradients = model.alloc_grads();
@@ -157,7 +178,7 @@ impl ReinforcementLearning {
             let next_build = BuildOptionId::from(chosen_index as u8);
             if !build_options.contains(next_build) {
                 // disqualify this trajectory; should rarely happen
-                return Vec::new()
+                return Vec::new();
             }
 
             let next_state = state.compute_next(next_build, self.max_game_time);
@@ -240,50 +261,12 @@ impl ReinforcementLearning {
 }
 
 impl Searcher for ReinforcementLearning {
-    fn search(
-        &mut self,
-        shared_state: &Arc<SharedState>,
-        initial_state: LocalState,
-    ) -> SearchResult {
-        let mut model = self.device.build_module::<Layers, f32>();
-        model.reset_params();
-
-        let mut optimizer = Sgd::new(
-            &model,
-            SgdConfig {
-                lr: 1e-3,
-                momentum: None,
-                weight_decay: Some(WeightDecay::Decoupled(1e-2)),
-            },
-        );
-
-        for _ in 0..self.num_trajectories {
-            let steps = self.create_trajectory(&mut model, initial_state.clone());
-
-            if steps.is_empty() {
-                shared_state
-                    .sequences_skipped
-                    .fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
-
-            let score = self
-                .reward_model
-                .calculate(&initial_state, &steps.last().unwrap().state);
-
-            shared_state
-                .best_score
-                .store(f32::ceil(score) as u32, Ordering::Relaxed);
-
-            self.evaluate(&mut model, &mut optimizer, steps);
-            shared_state
-                .sequences_checked
-                .fetch_add(1, Ordering::Relaxed);
-        }
+    fn search(&mut self, initial_state: LocalState) -> SearchResult {
+        let model = self.train();
 
         let result = model.save("my_model_snapshot.npz");
         if let Err(error) = result {
-            eprintln!("{}", error);
+            eprintln!("Could not save model: {}", error);
         }
 
         let policy = DeterministicReinforcementPolicy::from_model(model);
@@ -305,5 +288,18 @@ impl Searcher for ReinforcementLearning {
         let score = self.reward_model.calculate(&initial_state, &state);
 
         SearchResult { score, sequence }
+    }
+
+    fn new_progress_updater(&self) -> Arc<dyn Display + Send + Sync> {
+        self.state.clone()
+    }
+}
+
+impl Display for ReinforcementLearningState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let last_score = self.last_score.load(Ordering::Relaxed);
+        let checked = self.current_trajectory.load(Ordering::Relaxed);
+
+        write!(f, "checked: {}, last_score: {}", checked, last_score)
     }
 }

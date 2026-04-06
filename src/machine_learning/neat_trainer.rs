@@ -3,7 +3,7 @@ use crate::data::BuildOptionId::{
 };
 use crate::data::{BuildOptionId, BuildSet};
 use crate::machine_learning::common;
-use crate::machine_learning::neat::{InputTensor, NeatNetwork, OutputTensor};
+use crate::machine_learning::neat::{Gene, InputTensor, NeatNetwork, OutputTensor};
 use crate::machine_learning::reward::Reward;
 use crate::random::MyRandom;
 use crate::search_handler::{LocalState, SearchResult};
@@ -12,25 +12,34 @@ use std::fmt::{Display, Formatter};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
+const COMPATIBLITY_THRESHOLD: f32 = 3.0;
+
 pub struct NeatTrainer {
     population: Vec<NeatNetwork>,
     best_network: NeatNetwork,
     best_score: f32,
     next_innovation_id: usize,
+    next_species_id: usize,
     rng: MyRandom,
     max_game_time: f32,
     generation_number: usize,
+    species: Vec<Specie>,
     config: NeatTrainerConfig,
     state: Arc<NeatStateWrapper>,
 }
 
 pub struct NeatTrainerConfig {
-    population_size: usize,
-    num_generations: usize,
-    reward_model: Box<dyn Reward>,
-    crossover_probability: f32,
-    add_connection_probability: f32,
-    add_node_probability: f32,
+    pub population_size: usize,
+    pub num_generations: usize,
+    pub reward_model: Box<dyn Reward>,
+    pub crossover_probability: f32,
+    pub add_connection_probability: f32,
+    pub add_node_probability: f32,
+}
+
+struct Specie {
+    id: usize,
+    base_genome: Vec<Gene>,
 }
 
 struct NeatStateWrapper(Mutex<NeatState>);
@@ -48,7 +57,7 @@ impl Searcher for NeatTrainer {
         for generation_idx in 0..self.config.num_generations {
             self.state.update(|s| s.generation_number = generation_idx);
 
-            self.process_generation(&initial_state);
+            self.create_next_generation(&initial_state);
         }
 
         SearchResult {
@@ -63,19 +72,11 @@ impl Searcher for NeatTrainer {
 }
 
 impl NeatTrainer {
-    pub fn new(reward_model: Box<dyn Reward>, random_seed: u32) -> Self {
-        let config = NeatTrainerConfig {
-            population_size: 100,
-            num_generations: 1000,
-            reward_model,
-            crossover_probability: 0.9,
-            add_connection_probability: 0.01,
-            add_node_probability: 0.01,
-        };
-        Self::new_with_config(config, random_seed)
-    }
-
-    pub fn new_with_config(config: NeatTrainerConfig, random_seed: u32) -> Self {
+    pub fn new_with_config(
+        config: NeatTrainerConfig,
+        random_seed: u32,
+        max_game_time: f32,
+    ) -> Self {
         let rng = MyRandom::new_from_u32(random_seed);
         let population = (0..config.population_size)
             .map(|i| NeatNetwork::new().add_connection(i, &rng).unwrap())
@@ -86,9 +87,14 @@ impl NeatTrainer {
             best_network: NeatNetwork::new(),
             best_score: 0.0,
             next_innovation_id: 0,
+            next_species_id: 1, // we start with one
             rng,
-            max_game_time: 1000.0,
+            max_game_time,
             generation_number: 0,
+            species: vec![Specie {
+                id: 0,
+                base_genome: Vec::new(),
+            }],
             config,
             state: Arc::new(NeatStateWrapper(Mutex::new(NeatState {
                 generation_number: 0,
@@ -101,7 +107,7 @@ impl NeatTrainer {
         }
     }
 
-    pub fn process_generation(&mut self, initial_state: &LocalState) {
+    pub fn create_next_generation(&mut self, initial_state: &LocalState) {
         let last_generation = std::mem::take(&mut self.population);
 
         let mut survivor_scores = Vec::new();
@@ -125,13 +131,13 @@ impl NeatTrainer {
                     let crossover_target =
                         f32::floor(parent_idx as f32 * self.rng.next_f32()) as usize;
                     if crossover_target == parent_idx {
-                        last_generation[survivor_idx[parent_idx]].clone()
+                        last_generation[survivor_idx[parent_idx]].mutate(&self.rng)
                     } else {
                         last_generation[survivor_idx[crossover_target]]
                             .cross_with(&last_generation[survivor_idx[parent_idx]], &self.rng)
                     }
                 } else {
-                    last_generation[survivor_idx[parent_idx]].clone()
+                    last_generation[survivor_idx[parent_idx]].mutate(&self.rng)
                 };
 
                 if self.rng.next_f32() < self.config.add_connection_probability {
@@ -156,10 +162,50 @@ impl NeatTrainer {
             }
         }
 
-        let (idx_of_best, score_of_best) = *survivor_scores.first().unwrap();
+        let longest_genome = survivor_scores
+            .iter()
+            .map(|(idx, _)| last_generation[*idx].num_connections())
+            .max()
+            .unwrap();
+
+        let (idx_of_best, score_of_best) = survivor_scores[*survivor_idx.first().unwrap()];
         if score_of_best > self.best_score {
+            self.best_score = score_of_best;
             self.best_network = last_generation.into_iter().nth(idx_of_best).unwrap();
         }
+
+        for network in &mut self.population {
+            let gene = network.sequence();
+            let mut least_distance = 0.0;
+            let mut closest_specie = self.species.first().unwrap();
+            for s in &self.species {
+                let distance = NeatNetwork::get_genome_distance(&s.base_genome, &gene);
+                if distance < least_distance {
+                    least_distance = distance;
+                    closest_specie = s;
+                }
+            }
+
+            if least_distance < COMPATIBLITY_THRESHOLD {
+                network.specie = closest_specie.id;
+            } else {
+                let id = self.next_species_id;
+                self.next_species_id += 1;
+                self.species.push(Specie {
+                    id,
+                    base_genome: gene,
+                });
+                network.specie = id;
+            }
+        }
+
+        self.state.update(|s| {
+            s.best_score = self.best_score;
+            s.best_survior_genome_size = self.best_network.num_connections();
+            s.max_survior_genome_size = usize::max(s.max_survior_genome_size, longest_genome);
+            s.num_created_species = self.next_species_id;
+            s.num_extinct_species = self.next_species_id - self.species.len();
+        });
     }
 
     fn get_sequence(&self, model: &NeatNetwork, initial_state: LocalState) -> Vec<BuildOptionId> {
@@ -211,20 +257,21 @@ impl NeatTrainer {
         let energy_per_build_power = state.energy_generation / state.build_power as f32;
 
         [
+            // bias
+            1.0,
             // raw state
-            state.time,
-            state.metal,
-            state.energy,
-            state.energy_generation,
-            state.metal_generation,
-            state.build_power as f32,
-            state.conversion_drain,
-            state.energy_storage as f32,
+            f32::ln(state.metal + 1.0) / 14.0,
+            f32::ln(state.energy + 1.0) / 15.0,
+            f32::ln(state.energy_generation + 1.0) / 18.0,
+            f32::ln(state.metal_generation + 1.0),
+            state.build_power as f32 / 20000.0, // increments in steps of 200
+            f32::ln(state.conversion_drain + 1.0) / 20.0,
+            f32::ln(state.energy_storage as f32 + 1.0) / 15.0,
             // relational values
             fraction_of_energy_converted,
             fraction_of_storage_generated_per_second,
-            (metal_per_build_power + 1.0) / 5.0,
-            (energy_per_build_power + 1.0) / 5.0,
+            f32::ln(metal_per_build_power + 1.0) / 5.0,
+            f32::ln(energy_per_build_power + 1.0) / 5.0,
             // build options
             common::convert_to_float(state.has_built.contains(VehicleLab)),
             common::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
@@ -305,12 +352,12 @@ impl Display for NeatStateWrapper {
 
         write!(
             f,
-            "generation: {}, best score: {}, max survior genome size: {}, \
-            best survior genome size: {}, num created species: {}, num extinct species: {}",
+            "generation: {}, best score: {}, best survior genome size: {}, max survior genome size: {}, \
+            num created species: {}, num extinct species: {}",
             state.generation_number,
             state.best_score,
-            state.max_survior_genome_size,
             state.best_survior_genome_size,
+            state.max_survior_genome_size,
             state.num_created_species,
             state.num_extinct_species,
         )

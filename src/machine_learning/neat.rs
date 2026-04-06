@@ -16,7 +16,7 @@ pub struct NeatNetwork {
     /// sorted on input node
     connections: Vec<Connection>,
     num_hidden_nodes: usize,
-    specie: usize,
+    pub specie: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +31,10 @@ struct Connection {
 const WEIGHT_PERTUBATION_PROBABILITY: f32 = 0.9;
 const WEIGHT_PERTUBATION_MAX: f32 = 0.2;
 const WEIGHT_CUT_PROBABILITY: f32 = 0.01;
+
+const GENOME_DISTANCE_EXCESS_FACTOR: f32 = 1.0;
+const GENOME_DISTANCE_DISJOINT_FACTOR: f32 = 1.0;
+const GENOME_DISTANCE_WEIGHT_FACTOR: f32 = 0.4;
 
 impl NeatNetwork {
     pub fn new() -> Self {
@@ -50,9 +54,8 @@ impl NeatNetwork {
         (next_build, next_state)
     }
 
-
     pub fn forward(&self, inputs: &InputTensor) -> OutputTensor {
-        let mut node_values = Vec::with_capacity(INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE);
+        let mut node_values = vec![0.0; INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE];
         node_values[..INPUT_SIZE].copy_from_slice(inputs);
 
         let mut last_processed_node_idx = INPUT_SIZE;
@@ -76,9 +79,58 @@ impl NeatNetwork {
         outputs
     }
 
+    pub fn num_connections(&self) -> usize {
+        self.connections.len()
+    }
+
+    pub fn sequence(&self) -> Vec<Gene> {
+        let mut this_sequence: Vec<Gene> = self.connections.iter().map(|c| Gene { id: c.innovation_id, weight: c.weight }).collect();
+        this_sequence.sort_by_key(|g| g.id);
+        this_sequence
+    }
+
+    pub fn get_genome_distance(this_sequence: &Vec<Gene>, other_sequence: &Vec<Gene>) -> f32 {
+        let mut this_idx = 0;
+        let mut other_idx = 0;
+        let mut num_disjoint = 0;
+        let num_excess;
+        let mut num_equal = 0;
+        let mut total_weight_difference = 0.0;
+        loop {
+            if this_idx >= this_sequence.len() {
+                num_excess = other_sequence.len() - other_idx;
+                break;
+            } else if other_idx >= other_sequence.len() {
+                num_excess = this_sequence.len() - this_idx;
+                break;
+            }
+
+            let this_gene = &this_sequence[this_idx];
+            let other_gene = &other_sequence[other_idx];
+            if this_gene.id == other_gene.id {
+                num_equal += 1;
+                total_weight_difference += (this_gene.weight - other_gene.weight).abs();
+                this_idx += 1;
+                other_idx += 1;
+            } else if this_gene.id < other_gene.id {
+                num_disjoint += 1;
+                other_idx += 1;
+            } else {
+                num_disjoint += 1;
+                this_idx += 1;
+            }
+        }
+
+        let lenght_of_longest = std::cmp::max(this_sequence.len(), other_sequence.len());
+
+        (GENOME_DISTANCE_EXCESS_FACTOR * num_excess as f32) / (lenght_of_longest as f32)
+            + (GENOME_DISTANCE_DISJOINT_FACTOR * num_disjoint as f32) / (lenght_of_longest as f32)
+            + GENOME_DISTANCE_WEIGHT_FACTOR * (total_weight_difference / num_equal as f32)
+    }
+
     pub fn add_connection(&self, innovation_id: usize, rng: &MyRandom) -> Option<NeatNetwork> {
         let input = rng.random_index(INPUT_SIZE + self.num_hidden_nodes);
-        let output = rng.random_between(input + 1, self.connections.len() - 1);
+        let output = rng.random_between(input + 1, INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE - 1);
 
         let first_higher_input_idx = self.connections.partition_point(|c| c.input < input);
         // from below `first_higher_input_idx` going down, seach for the same output
@@ -209,4 +261,9 @@ impl NeatNetwork {
         }
         best_id
     }
+}
+
+pub struct Gene {
+    id: usize,
+    weight: f32,
 }

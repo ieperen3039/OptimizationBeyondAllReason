@@ -1,6 +1,6 @@
 pub mod reinforcement_policy;
 pub mod reinforcement_learning;
+pub mod neat_trainer;
 pub mod reward;
-pub mod neat;
+mod neat;
 mod common;
-mod neat_trainer;

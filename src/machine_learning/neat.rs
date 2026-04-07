@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use crate::data;
 use crate::data::{BuildOptionId, BuildSet};
 use crate::random::MyRandom;
@@ -26,14 +27,14 @@ const MINIMUM_CONNECTION_WEIGHT: f32 = 0.75;
 pub type InputTensor = [f32; INPUT_SIZE];
 pub type OutputTensor = [f32; OUTPUT_SIZE];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NeatNetwork {
     /// sorted on input node
     connections: Vec<Connection>,
     num_hidden_nodes: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Connection {
     input: usize,
     output: usize,

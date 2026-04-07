@@ -10,6 +10,8 @@ use crate::search_handler::{LocalState, SearchResult};
 use crate::searcher::Searcher;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::Write;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
@@ -68,6 +70,11 @@ impl Searcher for NeatTrainer {
 
             self.create_next_generation(&initial_state);
         }
+
+        let mut out_file = File::create("my_neat_model.json").unwrap();
+        let best_as_json = serde_json::to_string(&self.best_network).unwrap();
+        println!("{}", best_as_json);
+        out_file.write(best_as_json.as_bytes()).unwrap();
 
         SearchResult {
             score: self.best_score,

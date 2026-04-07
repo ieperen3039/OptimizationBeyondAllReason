@@ -3,7 +3,7 @@ use std::mem;
 use crate::data;
 use crate::data::BuildOptionId::{ConstructionVehicleT1, ConstructionVehicleT2};
 
-pub const NUM_BUILD_OPTIONS : usize = 13;
+pub const NUM_BUILD_OPTIONS : usize = 14;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
@@ -23,6 +23,7 @@ pub enum BuildOptionId {
     ConstructionVehicleT2,
     Juggernaut,
 }
+
 
 impl BuildOptionId {
     pub fn data(self) -> &'static BuildOption {
@@ -45,6 +46,18 @@ impl From<usize> for BuildOptionId {
 }
 
 pub const BUILD_OPTIONS: [BuildOption; NUM_BUILD_OPTIONS] = [
+    BuildOption {
+        name: "Nothing",
+        cost_metal: 0,
+        cost_energy: 0,
+        cost_bp: 1000,
+        energy_generation: 0,
+        metal_generation: 0,
+        build_power: 0,
+        conversion_drain: 0.0,
+        conversion_result: 0.0,
+        energy_storage: 0,
+    },
     BuildOption {
         name: "Wind",
         cost_metal: 43,

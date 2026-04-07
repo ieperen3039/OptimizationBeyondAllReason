@@ -1,8 +1,8 @@
-use std::fmt::Display;
 use crate::data;
 use crate::data::{BuildOptionId, BuildSet};
 use crate::searcher::Searcher;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::fmt::Display;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -72,6 +72,7 @@ fn progress_updater(progress_state: Arc<SharedState>) {
         let _ = std::io::Write::flush(&mut std::io::stdout());
         thread::sleep(Duration::from_millis(200));
     }
+    println!();
 }
 
 impl LocalState {

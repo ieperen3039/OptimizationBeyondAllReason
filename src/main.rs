@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 use crate::machine_learning::neat_trainer::{NeatTrainer, NeatTrainerConfig};
-use crate::machine_learning::reinforcement_learning::ReinforcementLearning;
-use crate::machine_learning::reward::{MetalGenerationReward, ResourceGenerationReward, TierReward};
+use crate::machine_learning::reward::ResourceGenerationReward;
 use crate::search_handler::LocalState;
 
 mod data;
@@ -32,8 +31,8 @@ fn main() {
     // let mut searcher = BruteForceSearcher::new(BuildOptionId::AdvancedVehicleLab, 15);
     // let mut searcher = ReinforcementLearning::new(2000, 0x3039, 30.0 * 600.0, Box::from(MetalGenerationReward));
     let config = NeatTrainerConfig {
-        population_size: 100,
-        num_generations: 100,
+        population_size: 1000,
+        num_generations: 10000,
         reward_model: Box::from(ResourceGenerationReward),
         crossover_probability: 0.9,
         add_connection_probability: 0.02,

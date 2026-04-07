@@ -1,10 +1,25 @@
 use crate::data;
-use crate::data::{BuildOptionId, BuildSet, NUM_BUILD_OPTIONS};
+use crate::data::{BuildOptionId, BuildSet};
 use crate::random::MyRandom;
 use crate::search_handler::LocalState;
 
-const INPUT_SIZE: usize = 16;
-const OUTPUT_SIZE: usize = NUM_BUILD_OPTIONS;
+pub const INPUT_SIZE: usize = 16;
+pub const OUTPUT_SIZE: usize = 12;
+pub const OUTPUT_MAPPING: [BuildOptionId; OUTPUT_SIZE] = [
+    BuildOptionId::WindTurbine,
+    BuildOptionId::SolarCollector,
+    BuildOptionId::AdvancedSolarCollector,
+    BuildOptionId::EnergyConverter,
+    BuildOptionId::AdvancedEnergyConverter,
+    BuildOptionId::FusionReactor,
+    BuildOptionId::AdvancedFusionReactor,
+    BuildOptionId::BuildTurret,
+    BuildOptionId::VehicleLab,
+    BuildOptionId::ConstructionVehicleT1,
+    BuildOptionId::AdvancedVehicleLab,
+    BuildOptionId::ConstructionVehicleT2,
+];
+
 const DISABLED_GENE_PROBABILITY: f32 = 0.75;
 const MINIMUM_CONNECTION_WEIGHT: f32 = 0.75;
 
@@ -16,7 +31,6 @@ pub struct NeatNetwork {
     /// sorted on input node
     connections: Vec<Connection>,
     num_hidden_nodes: usize,
-    pub specie: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +55,22 @@ impl NeatNetwork {
         NeatNetwork {
             connections: Vec::new(),
             num_hidden_nodes: 0,
-            specie: 0,
+        }
+    }
+
+    pub fn new_with_connection(input: usize, output: usize, weight: f32, innovation_id: usize) -> Self {
+        assert!(input < INPUT_SIZE);
+        assert!(output >= INPUT_SIZE);
+        assert!(output < INPUT_SIZE + OUTPUT_SIZE);
+        NeatNetwork {
+            connections: vec![Connection{
+                input,
+                output,
+                weight,
+                enabled: true,
+                innovation_id,
+            }],
+            num_hidden_nodes: 0,
         }
     }
 
@@ -75,7 +104,8 @@ impl NeatNetwork {
         }
 
         let mut outputs = [0.0; OUTPUT_SIZE];
-        outputs.clone_from_slice(&node_values[INPUT_SIZE + self.num_hidden_nodes..]);
+        let start_of_output = INPUT_SIZE + self.num_hidden_nodes;
+        outputs.clone_from_slice(&node_values[start_of_output..]);
         outputs
     }
 
@@ -128,7 +158,7 @@ impl NeatNetwork {
             + GENOME_DISTANCE_WEIGHT_FACTOR * (total_weight_difference / num_equal as f32)
     }
 
-    pub fn add_connection(&self, innovation_id: usize, rng: &MyRandom) -> Option<NeatNetwork> {
+    pub fn add_connection(&mut self, innovation_id: usize, rng: &MyRandom) -> bool {
         let input = rng.random_index(INPUT_SIZE + self.num_hidden_nodes);
         let output = rng.random_between(input + 1, INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE - 1);
 
@@ -136,14 +166,13 @@ impl NeatNetwork {
         // from below `first_higher_input_idx` going down, seach for the same output
         for connection in self.connections[..first_higher_input_idx].iter().rev() {
             if connection.output == output {
-                return None;
+                return false;
             }
         }
 
         // no same output, insert new connection before first_higher_input_idx
-        let mut new_network = self.clone();
         let initial_weight = rng.next_f32() - 0.5;
-        new_network.connections.insert(
+        self.connections.insert(
             first_higher_input_idx,
             Connection {
                 input,
@@ -153,43 +182,35 @@ impl NeatNetwork {
                 innovation_id,
             },
         );
-        Some(new_network)
+        true
     }
 
-    pub fn add_node(
-        &self,
-        innovation_id_1: usize,
-        innovation_id_2: usize,
-        rng: &MyRandom,
-    ) -> NeatNetwork {
-        let mut new_network = self.clone();
-        let node_idx = new_network.num_hidden_nodes;
-        new_network.num_hidden_nodes += 1;
+    pub fn add_node(&mut self, innovation_id_1: usize, innovation_id_2: usize, rng: &MyRandom) {
+        let node_idx = self.num_hidden_nodes;
+        self.num_hidden_nodes += 1;
 
-        let connection_idx_to_split = rng.random_index(new_network.connections.len());
-        new_network.connections[connection_idx_to_split].enabled = false;
-        let connection = new_network.connections[connection_idx_to_split].clone();
+        let connection_idx_to_split = rng.random_index(self.connections.len());
+        self.connections[connection_idx_to_split].enabled = false;
+        let connection = self.connections[connection_idx_to_split].clone();
 
-        new_network.connections.push(Connection {
+        self.connections.push(Connection {
             input: connection.input,
             output: node_idx,
             weight: connection.weight,
             enabled: true,
             innovation_id: innovation_id_1,
         });
-        new_network.connections.push(Connection {
+        self.connections.push(Connection {
             input: node_idx,
             output: connection.output,
             weight: connection.weight,
             enabled: true,
             innovation_id: innovation_id_2,
         });
-        new_network
     }
 
-    pub fn mutate(&self, rng: &MyRandom) -> NeatNetwork {
-        let mut new_network = self.clone();
-        for conn in &mut new_network.connections {
+    pub fn mutate(&mut self, rng: &MyRandom) {
+        for conn in &mut self.connections {
             let rand = rng.next_f32();
             if rand > WEIGHT_PERTUBATION_PROBABILITY {
                 // do not perturb
@@ -210,39 +231,34 @@ impl NeatNetwork {
                 conn.weight += pertubation;
             }
         }
-        new_network
     }
 
     /// assumes that self has higher fitness than other
-    pub fn cross_with(&self, other: &NeatNetwork, rng: &MyRandom) -> NeatNetwork {
-        let mut new_network = self.clone();
-
+    pub fn cross_with(&mut self, other: &NeatNetwork, rng: &MyRandom) {
         for other_connection in &other.connections {
             // half of other's connections are not considered, whether they are present or not.
-            // Given that non-matching connections are always dropped, this only reduces the
-            // number of searches, without affecting correctness
+            // Given that non-matching connections are always dropped, this check here only reduces
+            // the number of searches, without affecting correctness
             if rng.next_f32() < 0.5 {
                 continue;
             }
 
-            let index = new_network
+            let index = self
                 .connections
                 .iter()
                 .position(|c| c.innovation_id == other_connection.innovation_id);
 
             if let Some(index) = index {
-                let new_connection = &mut new_network.connections[index];
+                let new_connection = &mut self.connections[index];
                 // if enabled in one parent, but disabled in the other
                 if new_connection.enabled ^ other_connection.enabled
                     && rng.next_f32() < DISABLED_GENE_PROBABILITY
                 {
                     new_connection.enabled = false
                 }
-                new_network.connections[index] = other_connection.clone();
+                self.connections[index] = other_connection.clone();
             }
         }
-
-        new_network
     }
 
     fn sigmoid(value: f32) -> f32 {
@@ -250,12 +266,16 @@ impl NeatNetwork {
     }
 
     fn get_max(outputs: OutputTensor, allowed_options: BuildSet) -> BuildOptionId {
-        let mut max_value = f32::MIN;
+        let mut max_value = 0.0; // start at 0 to avoid picking an unactivated node
         let mut best_id = BuildOptionId::Invalid;
-        for id in allowed_options.ids() {
-            let value = outputs[id as usize];
+        for idx in 0..OUTPUT_SIZE {
+            if !allowed_options.contains(OUTPUT_MAPPING[idx]) {
+                continue;
+            }
+
+            let value = outputs[idx];
             if value > max_value {
-                best_id = id;
+                best_id = OUTPUT_MAPPING[idx];
                 max_value = value;
             }
         }

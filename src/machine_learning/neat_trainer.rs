@@ -170,7 +170,7 @@ impl NeatTrainer {
                     score,
                 });
             }
-            species_score /= (num_members as f32);
+            species_score /= num_members as f32;
             member_scores.sort();
             let best_of_species = member_scores.first().unwrap();
             if best_of_species < &best {

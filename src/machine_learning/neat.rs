@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
-use crate::data;
-use crate::data::{BuildOptionId, BuildSet};
+use crate::data::{self, BuildOptionId, BuildSet};
 use crate::random::MyRandom;
 use crate::search_handler::LocalState;
+use serde::{Deserialize, Serialize};
 
 pub const INPUT_SIZE: usize = 16;
 pub const OUTPUT_SIZE: usize = 12;
@@ -45,7 +44,7 @@ struct Connection {
 
 const WEIGHT_PERTUBATION_PROBABILITY: f32 = 0.9;
 const WEIGHT_PERTUBATION_MAX: f32 = 0.2;
-const WEIGHT_CUT_PROBABILITY: f32 = 0.01;
+const CONNECTION_CUT_PROBABILITY: f32 = 0.01;
 
 const GENOME_DISTANCE_EXCESS_FACTOR: f32 = 1.0;
 const GENOME_DISTANCE_DISJOINT_FACTOR: f32 = 1.0;
@@ -59,12 +58,17 @@ impl NeatNetwork {
         }
     }
 
-    pub fn new_with_connection(input: usize, output: usize, weight: f32, innovation_id: usize) -> Self {
+    pub fn new_with_connection(
+        input: usize,
+        output: usize,
+        weight: f32,
+        innovation_id: usize,
+    ) -> Self {
         assert!(input < INPUT_SIZE);
         assert!(output >= INPUT_SIZE);
         assert!(output < INPUT_SIZE + OUTPUT_SIZE);
         NeatNetwork {
-            connections: vec![Connection{
+            connections: vec![Connection {
                 input,
                 output,
                 weight,
@@ -75,7 +79,12 @@ impl NeatNetwork {
         }
     }
 
-    pub fn run(&self, state: &LocalState, input: &InputTensor, max_game_time: f32) -> (BuildOptionId, Option<LocalState>) {
+    pub fn run(
+        &self,
+        state: &LocalState,
+        input: &InputTensor,
+        max_game_time: f32,
+    ) -> (BuildOptionId, Option<LocalState>) {
         let logits = self.forward(&input);
 
         let build_options = data::get_build_options(&state.has_built);
@@ -115,7 +124,14 @@ impl NeatNetwork {
     }
 
     pub fn sequence(&self) -> Vec<Gene> {
-        let mut this_sequence: Vec<Gene> = self.connections.iter().map(|c| Gene { id: c.innovation_id, weight: c.weight }).collect();
+        let mut this_sequence: Vec<Gene> = self
+            .connections
+            .iter()
+            .map(|c| Gene {
+                id: c.innovation_id,
+                weight: c.weight,
+            })
+            .collect();
         this_sequence.sort_by_key(|g| g.id);
         this_sequence
     }
@@ -161,7 +177,10 @@ impl NeatNetwork {
 
     pub fn add_connection(&mut self, innovation_id: usize, rng: &MyRandom) -> bool {
         let input = rng.random_index(INPUT_SIZE + self.num_hidden_nodes);
-        let output = rng.random_between(input + 1, INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE - 1);
+        let output = rng.random_between(
+            input + 1,
+            INPUT_SIZE + self.num_hidden_nodes + OUTPUT_SIZE - 1,
+        );
 
         let first_higher_input_idx = self.connections.partition_point(|c| c.input < input);
         // from below `first_higher_input_idx` going down, seach for the same output
@@ -216,14 +235,12 @@ impl NeatNetwork {
             if rand > WEIGHT_PERTUBATION_PROBABILITY {
                 // do not perturb
                 continue;
-            } else if conn.weight < MINIMUM_CONNECTION_WEIGHT {
-                // connection is too weak, disable
+            } else if rand > WEIGHT_PERTUBATION_PROBABILITY - CONNECTION_CUT_PROBABILITY {
+                // try removing this connection, to check if it is unnecessary
                 conn.enabled = false;
-            } else if rand > WEIGHT_PERTUBATION_PROBABILITY - WEIGHT_CUT_PROBABILITY {
-                // try cutting the weight of this connection, to check if it is unnecessary
-                conn.weight /= 4.0
             } else {
-                const REMAINING_PROBABILITY: f32 = WEIGHT_PERTUBATION_PROBABILITY - WEIGHT_CUT_PROBABILITY;
+                const REMAINING_PROBABILITY: f32 =
+                    WEIGHT_PERTUBATION_PROBABILITY - CONNECTION_CUT_PROBABILITY;
                 const REMAINING_PROBABILITY_HALF: f32 = REMAINING_PROBABILITY / 2.0;
                 const FACTOR: f32 = WEIGHT_PERTUBATION_MAX / REMAINING_PROBABILITY_HALF;
 

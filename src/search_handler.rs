@@ -68,7 +68,7 @@ fn progress_updater(progress_state: Arc<SharedState>) {
     use std::time::Duration;
 
     while !progress_state.done.load(Ordering::Relaxed) {
-        print!("\rProgress: {:<60}", progress_state.state);
+        print!("\rProgress: {:<120} ", progress_state.state);
         let _ = std::io::Write::flush(&mut std::io::stdout());
         thread::sleep(Duration::from_millis(200));
     }

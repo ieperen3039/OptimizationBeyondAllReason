@@ -1,9 +1,9 @@
-use crate::data::{self, BuildOptionId, BuildSet};
+use crate::data::{self, BuildOptionId, BuildSet, NUM_BUILD_OPTIONS};
 use crate::random::MyRandom;
 use crate::search_handler::LocalState;
 use serde::{Deserialize, Serialize};
 
-pub const INPUT_SIZE: usize = 16;
+pub const INPUT_SIZE: usize = 5 + NUM_BUILD_OPTIONS;
 pub const OUTPUT_SIZE: usize = 12;
 pub const OUTPUT_MAPPING: [BuildOptionId; OUTPUT_SIZE] = [
     BuildOptionId::WindTurbine,
@@ -77,6 +77,37 @@ impl NeatNetwork {
             }],
             num_hidden_nodes: 0,
         }
+    }
+
+    /// Build input tensor based on state
+    pub fn build_input_tensor(
+        state: &LocalState,
+        buildings: &[usize; NUM_BUILD_OPTIONS],
+    ) -> InputTensor {
+        let fraction_of_energy_converted = if state.conversion_drain <= 0.0 {
+            0.0
+        } else {
+            state.energy_generation / state.conversion_drain
+        };
+        let fraction_of_storage_generated_per_second =
+            state.energy_generation / (state.energy_storage as f32);
+        let metal_per_build_power =
+            state.compute_potential_metal_production() / state.build_power as f32;
+        let energy_per_build_power = state.energy_generation / state.build_power as f32;
+
+        let mut value_iter = [
+            // bias
+            1.0,
+            // relational values
+            fraction_of_energy_converted,
+            fraction_of_storage_generated_per_second,
+            Self::sigmoid(metal_per_build_power - 1.0),
+            Self::sigmoid(energy_per_build_power - 1.0),
+        ]
+        .into_iter()
+        .chain(buildings.map(|v| (v as f32) / 10.0));
+
+        std::array::from_fn(|_| value_iter.next().unwrap_or(0.0))
     }
 
     pub fn run(

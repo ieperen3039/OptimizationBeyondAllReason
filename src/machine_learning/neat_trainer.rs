@@ -1,10 +1,8 @@
-use crate::data::BuildOptionId::{
-    AdvancedVehicleLab, ConstructionVehicleT1, ConstructionVehicleT2, VehicleLab,
-};
+use crate::data;
 use crate::data::{BuildOptionId, BuildSet};
-use crate::machine_learning::neat::{Gene, InputTensor, NeatNetwork, OutputTensor};
+use crate::machine_learning::neat::{Gene, NeatNetwork, OutputTensor};
 use crate::machine_learning::reward::Reward;
-use crate::machine_learning::{common, neat};
+use crate::machine_learning::neat;
 use crate::random::MyRandom;
 use crate::search_handler::{LocalState, SearchResult};
 use crate::searcher::Searcher;
@@ -71,7 +69,7 @@ impl Searcher for NeatTrainer {
             self.create_next_generation(&initial_state);
         }
 
-        let mut out_file = File::create("my_neat_model.json").unwrap();
+        let mut out_file = File::create("../../my_neat_model_2.json").unwrap();
         let best_as_json = serde_json::to_string(&self.best_network).unwrap();
         println!("{}", best_as_json);
         out_file.write(best_as_json.as_bytes()).unwrap();
@@ -283,10 +281,11 @@ impl NeatTrainer {
 
     fn get_sequence(&self, model: &NeatNetwork, initial_state: LocalState) -> Vec<BuildOptionId> {
         let mut state = initial_state.clone();
+        let mut buildings = [0; data::NUM_BUILD_OPTIONS];
         let mut sequence = Vec::new();
 
         loop {
-            let input = Self::build_input_tensor(&state);
+            let input = NeatNetwork::build_input_tensor(&state, &buildings);
 
             let (next_build, next_state) = model.run(&state, &input, self.max_game_time);
 
@@ -294,6 +293,7 @@ impl NeatTrainer {
                 return sequence;
             }
 
+            buildings[next_build as usize] += 1;
             sequence.push(next_build);
             state = next_state.unwrap();
         }
@@ -301,56 +301,22 @@ impl NeatTrainer {
 
     fn evaluate(&self, model: &NeatNetwork, initial_state: LocalState) -> f32 {
         let mut state = initial_state.clone();
+        let mut buildings = [0; data::NUM_BUILD_OPTIONS];
 
         loop {
-            let input = Self::build_input_tensor(&state);
+            let input = NeatNetwork::build_input_tensor(&state, &buildings);
 
-            let (_, next_state) = model.run(&state, &input, self.max_game_time);
+            let (next_build, next_state) = model.run(&state, &input, self.max_game_time);
 
             if next_state.is_none() {
                 break;
             }
 
+            buildings[next_build as usize] += 1;
             state = next_state.unwrap();
         }
 
         self.config.reward_model.calculate(&initial_state, &state)
-    }
-
-    /// Build input tensor based on state
-    pub fn build_input_tensor(state: &LocalState) -> InputTensor {
-        let fraction_of_energy_converted = if state.conversion_drain <= 0.0 {
-            0.0
-        } else {
-            state.energy_generation / state.conversion_drain
-        };
-        let fraction_of_storage_generated_per_second =
-            state.energy_generation / (state.energy_storage as f32);
-        let metal_per_build_power = state.metal_generation / state.build_power as f32;
-        let energy_per_build_power = state.energy_generation / state.build_power as f32;
-
-        [
-            // bias
-            1.0,
-            // raw state
-            f32::ln(state.metal + 1.0) / 14.0,
-            f32::ln(state.energy + 1.0) / 15.0,
-            f32::ln(state.energy_generation + 1.0) / 18.0,
-            f32::ln(state.metal_generation + 1.0),
-            state.build_power as f32 / 20000.0, // increments in steps of 200
-            f32::ln(state.conversion_drain + 1.0) / 20.0,
-            f32::ln(state.energy_storage as f32 + 1.0) / 15.0,
-            // relational values
-            fraction_of_energy_converted,
-            fraction_of_storage_generated_per_second,
-            f32::ln(metal_per_build_power + 1.0) / 5.0,
-            f32::ln(energy_per_build_power + 1.0) / 5.0,
-            // build options
-            common::convert_to_float(state.has_built.contains(VehicleLab)),
-            common::convert_to_float(state.has_built.contains(ConstructionVehicleT1)),
-            common::convert_to_float(state.has_built.contains(AdvancedVehicleLab)),
-            common::convert_to_float(state.has_built.contains(ConstructionVehicleT2)),
-        ]
     }
 
     #[allow(dead_code)]
